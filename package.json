@@ -1,0 +1,20 @@
+{
+  "name": "goose-rarity",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "CLI tool to fetch Goose setlists from elgoose.net, cache them locally, and compute rarity scores.",
+  "bin": {
+    "goose-rarity": "./goose_rarity.js"
+  },
+  "scripts": {
+    "start": "node goose_rarity.js --update"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "commander": "^11.1.0",
+    "papaparse": "^5.4.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
