@@ -32,9 +32,23 @@ async function writeCoverageChunk(testInfo: import('@playwright/test').TestInfo,
 const test = base.extend({
   page: async ({ page, browserName }, use, testInfo) => {
     let session: import('playwright-core').CDPSession | null = null;
+    const scriptSourceCache = new Map<string, string>();
+
+    await page.addInitScript(() => {
+      try {
+        const request = indexedDB.deleteDatabase('keyval-store');
+        if (request) {
+          request.onerror = () => {};
+          request.onsuccess = () => {};
+        }
+      } catch {
+        // ignore failures clearing IndexedDB before load
+      }
+    });
 
     if (browserName === 'chromium') {
       session = await page.context().newCDPSession(page);
+      await session.send('Debugger.enable');
       await session.send('Profiler.enable');
       await session.send('Profiler.startPreciseCoverage', {
         callCount: false,
@@ -47,9 +61,25 @@ const test = base.extend({
     if (session) {
       try {
         const { result } = await session.send('Profiler.takePreciseCoverage');
+        for (const entry of result) {
+          if (!entry?.url || scriptSourceCache.has(entry.url)) continue;
+          try {
+            const { scriptSource } = await session.send('Debugger.getScriptSource', {
+              scriptId: entry.scriptId
+            });
+            scriptSourceCache.set(entry.url, scriptSource);
+          } catch {
+            // ignore failures fetching source (e.g. eval scripts)
+          }
+        }
         await session.send('Profiler.stopPreciseCoverage');
+        await session.send('Debugger.disable');
         await session.send('Profiler.disable');
-        await writeCoverageChunk(testInfo, result);
+        const enriched = result.map((entry) => ({
+          ...entry,
+          source: entry?.url ? scriptSourceCache.get(entry.url) : undefined
+        }));
+        await writeCoverageChunk(testInfo, enriched);
       } finally {
         try {
           await session.detach();

@@ -95,6 +95,19 @@
       "tracktime": "13:30"
     },
     {
+      "uniqueid": "102-4",
+      "show_id": 102,
+      "showdate": "2023-08-16",
+      "song_id": 9,
+      "songname": "Electric Avenue",
+      "isoriginal": 0,
+      "original_artist": "BØRNS",
+      "settype": "set",
+      "setnumber": 1,
+      "position": 4,
+      "tracktime": "04:50"
+    },
+    {
       "uniqueid": "103-1",
       "show_id": 103,
       "showdate": "2022-12-31",

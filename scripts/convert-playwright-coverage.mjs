@@ -89,7 +89,8 @@ async function loadCoverageEntries(inputPath) {
         testId: test.testId,
         title: test.title,
         url: entry.url,
-        functions: entry.functions
+        functions: entry.functions,
+        source: entry.source
       });
     }
   }
@@ -117,8 +118,14 @@ async function convertCoverage(entries) {
 
     let converter = converters.get(localPath);
     if (!converter) {
+      let sourceCode;
+      if (entry.source) {
+        sourceCode = entry.source;
+      } else {
+        sourceCode = await fs.readFile(localPath, 'utf8');
+      }
       converter = v8ToIstanbul(localPath, 0, {
-        source: await fs.readFile(localPath, 'utf8')
+        source: sourceCode
       });
       await converter.load();
       converters.set(localPath, converter);
