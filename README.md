@@ -52,3 +52,21 @@ rarity = min(1 / playsPct, 1 / 3) * (1 - 0.5 * isCover)
 ```
 
 `showsSinceFirstPerformance` considers only shows that happened after the song debuted (inclusive). Songs that first appeared in 2020 or later receive a small bonus (≈0.1 for originals, ≈0.05 for covers) before rarities are rescaled, and final show scores average song rarities with a mild length multiplier so longer setlists don’t dominate. A show’s rarity score is the sum of these adjusted song contributions.
+
+## Interactive Web Dashboard
+
+A Vite + React dashboard lives in `web/` and exposes the same filters as the CLI:
+
+```bash
+npm install --prefix web
+npm run web:dev
+```
+
+Then open [http://localhost:5173](http://localhost:5173) in a browser. The UI supports:
+
+- Uploading an existing `elgoose_setlists.json` file (or fetching fresh data from the API).
+- Caching the dataset in IndexedDB so subsequent visits reuse the local copy.
+- Filtering by year, venue substring, and the number of top shows to display.
+- Viewing omitted shows (those without setlist data), average rarity, and a sortable leaderboard styled with shadcn-inspired components.
+
+Use `npm run web:build` (and `npm run web:preview`) to produce a production-ready build.
