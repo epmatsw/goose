@@ -7,7 +7,13 @@ import { Select } from './components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Badge } from './components/ui/badge';
 import { clearDataset, loadDataset, saveDataset, GooseDataset } from './lib/cache';
-import { computeRarityScores, RarityScore, createSetlistEntryKey, SongRarityDetail } from './lib/rarity';
+import {
+  computeRarityScores,
+  RarityScore,
+  createSetlistEntryKey,
+  SongRarityDetail,
+  SongAggregate
+} from './lib/rarity';
 
 type Status = 'idle' | 'loading' | 'ready' | 'error';
 type YearOption = 'all' | number;
@@ -27,6 +33,47 @@ function formatPercentage(value: number, decimals = 1) {
   return `${percent.toFixed(decimals)}%`;
 }
 
+const dateFormatter = new Intl.DateTimeFormat(undefined, {
+  month: 'long',
+  day: 'numeric',
+  year: 'numeric'
+});
+
+const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
+  month: 'long',
+  day: 'numeric',
+  year: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit'
+});
+
+function parseDate(value?: string | null): Date | undefined {
+  if (!value) return undefined;
+  const tryParse = (input: string) => {
+    const date = new Date(input);
+    return Number.isNaN(date.getTime()) ? undefined : date;
+  };
+  let parsed = tryParse(value);
+  if (!parsed && !String(value).includes('T')) {
+    parsed = tryParse(`${value}T00:00:00Z`);
+  }
+  return parsed;
+}
+
+function formatDateDisplay(value?: string | null): string {
+  if (!value) return 'Unknown';
+  const date = parseDate(value);
+  if (!date) return String(value);
+  return dateFormatter.format(date);
+}
+
+function formatDateTimeDisplay(value?: string | null): string {
+  if (!value) return 'Unknown';
+  const date = parseDate(value);
+  if (!date) return String(value);
+  return dateTimeFormatter.format(date);
+}
+
 function formatDuration(value?: string | null): string | null {
   if (value === undefined || value === null) return null;
   const trimmed = String(value).trim();
@@ -44,11 +91,12 @@ function formatDuration(value?: string | null): string | null {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }
 
-function formatFirstPlayed(value?: string): string | null {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleDateString();
+function weightColorClass(value: number | null): string {
+  if (value == null) return 'text-muted-foreground';
+  if (value >= 0.8) return 'text-emerald-500';
+  if (value >= 0.6) return 'text-lime-500';
+  if (value >= 0.4) return 'text-amber-500';
+  return 'text-rose-500';
 }
 
 async function fetchDatasetFromLocal(): Promise<GooseDataset> {
@@ -124,6 +172,26 @@ type ShowEntry = {
   key: string;
 };
 
+interface SongDetailProps {
+  dataset: GooseDataset | null;
+  songDetails: Record<string, SongRarityDetail>;
+  songAggregates: Record<string, SongAggregate>;
+  scores: RarityScore[];
+}
+
+type EntryDetail = {
+  itemKey: string;
+  songName: string;
+  footnote: string | null;
+  transitionLabel: string | null;
+  duration: string | null;
+  weightLabel: string | null;
+  weightNormalized: number | null;
+  coverLabel: string | null;
+  songKeyRef?: string;
+  isSegueArrow: boolean;
+};
+
 const App: React.FC = () => {
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -175,8 +243,8 @@ const App: React.FC = () => {
     }
   }, [years, yearFilter]);
 
-  const { scores, skipped, songDetails } = useMemo(() => {
-    if (!dataset) return { scores: [], skipped: [], songDetails: {} };
+  const { scores, skipped, songDetails, songAggregates } = useMemo(() => {
+    if (!dataset) return { scores: [], skipped: [], songDetails: {}, songAggregates: {} };
     return computeRarityScores({ shows: dataset.shows, setlists: dataset.setlists });
   }, [dataset]);
 
@@ -352,7 +420,24 @@ const App: React.FC = () => {
           />
           <Route
             path="/shows/:showId"
-            element={<ShowDetail dataset={dataset} scores={scores} songDetails={songDetails} />}
+            element={
+              <ShowDetail
+                dataset={dataset}
+                scores={scores}
+                songDetails={songDetails}
+              />
+            }
+          />
+          <Route
+            path="/songs/:songKey"
+            element={
+              <SongDetailPage
+                dataset={dataset}
+                songDetails={songDetails}
+                songAggregates={songAggregates}
+                scores={scores}
+              />
+            }
           />
           <Route
             path="*"
@@ -404,7 +489,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
             <span>{datasetInfo}</span>
             {dataset?.fetchedAt ? (
-              <Badge variant="secondary">Updated {new Date(dataset.fetchedAt).toLocaleString()}</Badge>
+              <Badge variant="secondary">Updated {formatDateTimeDisplay(dataset.fetchedAt)}</Badge>
             ) : null}
             {status === 'loading' ? (
               <Badge variant="outline" className="flex items-center gap-1">
@@ -495,10 +580,10 @@ const Dashboard: React.FC<DashboardProps> = ({
                       }}
                       role="button"
                       tabIndex={0}
-                      aria-label={`${score.date ?? 'Unknown date'} at ${score.venue || 'Unknown venue'}`}
+                      aria-label={`${formatDateDisplay(score.date)} at ${score.venue || 'Unknown venue'}`}
                     >
                       <td className="px-4 py-2 text-left font-medium">{index + 1}</td>
-                      <td className="px-4 py-2 text-primary">{score.date ?? 'Unknown'}</td>
+                      <td className="px-4 py-2 text-primary">{formatDateDisplay(score.date)}</td>
                       <td className="px-4 py-2 text-primary">{score.venue || 'Unknown venue'}</td>
                       <td className="px-4 py-2">{score.location || 'Unknown location'}</td>
                       <td className="px-4 py-2 text-right font-mono">{formatNumber(score.rarityScore)}</td>
@@ -590,6 +675,43 @@ function getSetMeta(entry: any): SetMeta {
 const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores, songDetails }) => {
   const { showId } = useParams<{ showId: string }>();
   const numericId = Number.parseInt(String(showId ?? ''), 10);
+  const navigateTo = useNavigate();
+
+  const showEntries = useMemo(() => {
+    if (!dataset?.setlists || !Number.isFinite(numericId)) return [];
+    return dataset.setlists
+      .map((entry, index) => ({
+        entry,
+        index,
+        key: createSetlistEntryKey(entry, index)
+      }))
+      .filter((item) => item.entry?.show_id === numericId);
+  }, [dataset, numericId]);
+
+  const groupedSets = useMemo(() => {
+    if (showEntries.length === 0) return [];
+    const sorted = [...showEntries].sort((a, b) => {
+      const metaA = getSetMeta(a.entry);
+      const metaB = getSetMeta(b.entry);
+      if (metaA.groupOrder !== metaB.groupOrder) return metaA.groupOrder - metaB.groupOrder;
+      if (metaA.position !== metaB.position) return metaA.position - metaB.position;
+      const nameA = (a.entry?.songname ?? '').toString();
+      const nameB = (b.entry?.songname ?? '').toString();
+      return nameA.localeCompare(nameB);
+    });
+
+    const groups: Array<{ key: string; label: string; entries: ShowEntry[] }> = [];
+    for (const item of sorted) {
+      const meta = getSetMeta(item.entry);
+      let group = groups[groups.length - 1];
+      if (!group || group.key !== meta.groupKey) {
+        group = { key: meta.groupKey, label: meta.label, entries: [] };
+        groups.push(group);
+      }
+      group.entries.push(item);
+    }
+    return groups;
+  }, [showEntries]);
 
   if (!dataset) {
     return (
@@ -645,43 +767,8 @@ const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores, songDetails })
 
   const venue = score?.venue || decodeHtmlEntities(show.venuename ?? '') || 'Unknown venue';
   const location = score?.location || decodeHtmlEntities(show.location ?? '') || 'Unknown location';
-  const dateLabel = score?.date ?? show.showdate ?? 'Unknown date';
-
-  const showEntries = useMemo(() => {
-    if (!dataset?.setlists) return [];
-    return dataset.setlists
-      .map((entry, index) => ({
-        entry,
-        index,
-        key: createSetlistEntryKey(entry, index)
-      }))
-      .filter((item) => item.entry?.show_id === numericId);
-  }, [dataset, numericId]);
-
-  const groupedSets = useMemo(() => {
-    if (showEntries.length === 0) return [];
-    const sorted = [...showEntries].sort((a, b) => {
-      const metaA = getSetMeta(a.entry);
-      const metaB = getSetMeta(b.entry);
-      if (metaA.groupOrder !== metaB.groupOrder) return metaA.groupOrder - metaB.groupOrder;
-      if (metaA.position !== metaB.position) return metaA.position - metaB.position;
-      const nameA = (a.entry?.songname ?? '').toString();
-      const nameB = (b.entry?.songname ?? '').toString();
-      return nameA.localeCompare(nameB);
-    });
-
-    const groups: Array<{ key: string; label: string; entries: ShowEntry[] }> = [];
-    for (const item of sorted) {
-      const meta = getSetMeta(item.entry);
-      let group = groups[groups.length - 1];
-      if (!group || group.key !== meta.groupKey) {
-        group = { key: meta.groupKey, label: meta.label, entries: [] };
-        groups.push(group);
-      }
-      group.entries.push(item);
-    }
-    return groups;
-  }, [showEntries]);
+  const rawShowDate = score?.date ?? show.showdate ?? null;
+  const dateLabel = formatDateDisplay(rawShowDate);
 
   return (
     <>
@@ -716,7 +803,7 @@ const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores, songDetails })
             <div>
               <p className="text-xs uppercase text-muted-foreground">Cached</p>
               <p className="font-medium">
-                {dataset.fetchedAt ? new Date(dataset.fetchedAt).toLocaleString() : 'Unknown'}
+                {dataset.fetchedAt ? formatDateTimeDisplay(dataset.fetchedAt) : 'Unknown'}
               </p>
             </div>
           </div>
@@ -734,83 +821,171 @@ const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores, songDetails })
             </p>
           ) : (
             <div className="space-y-6">
-              {groupedSets.map((group) => (
-                <div key={group.key} className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="secondary">{group.label}</Badge>
-                    <span className="text-xs uppercase tracking-wide text-muted-foreground">
-                      {group.entries.length} song{group.entries.length === 1 ? '' : 's'}
+              {groupedSets.map((group) => {
+                const entryDetails: EntryDetail[] = group.entries.map((item) => {
+                  const entry = item.entry;
+                  const songName =
+                    typeof entry?.songname === 'string' && entry.songname.trim().length > 0
+                      ? entry.songname
+                      : 'Unknown Song';
+                  const footnote =
+                    typeof entry?.footnote === 'string' && entry.footnote.trim().length > 0
+                      ? entry.footnote.trim()
+                      : null;
+                  const transition =
+                    typeof entry?.transition === 'string' && entry.transition.trim().length > 0
+                      ? entry.transition.trim()
+                      : null;
+                  const isSegueArrow = Boolean(transition && /[>→↠↣]/.test(transition));
+                  const transitionLabel = isSegueArrow ? null : transition;
+                  const duration = formatDuration(entry?.tracktime);
+                  const rarity = songDetails[item.key];
+                  const weightNormalized = rarity?.normalized ?? null;
+                  const weightLabel = weightNormalized != null ? formatNumber(weightNormalized) : null;
+                  const songKeyRef = rarity?.songKey;
+                  const coverArtist =
+                    rarity && rarity.isCover && entry?.original_artist
+                      ? decodeHtmlEntities(entry.original_artist)
+                      : null;
+                  const coverLabel =
+                    rarity && rarity.isCover
+                      ? `Cover${coverArtist ? ` of ${coverArtist}` : ''}`
+                      : null;
+                  return {
+                    itemKey: item.key,
+                    songName,
+                    footnote,
+                    transitionLabel,
+                    duration,
+                    weightLabel,
+                    weightNormalized,
+                    coverLabel,
+                    songKeyRef,
+                    isSegueArrow
+                  };
+                });
+
+                const segments: Array<{ entries: EntryDetail[]; isRun: boolean }> = [];
+                let buffer: EntryDetail[] = [];
+                let bufferHasSegue = false;
+
+                entryDetails.forEach((detail) => {
+                  buffer.push(detail);
+                  if (detail.isSegueArrow) bufferHasSegue = true;
+                  if (!detail.isSegueArrow) {
+                    segments.push({ entries: buffer, isRun: bufferHasSegue });
+                    buffer = [];
+                    bufferHasSegue = false;
+                  }
+                });
+                if (buffer.length > 0) {
+                  segments.push({ entries: buffer, isRun: bufferHasSegue });
+                }
+
+                const renderRow = (detail: EntryDetail) => {
+                  const isSongLink = Boolean(detail.songKeyRef);
+                  const handleClick = () => {
+                    if (!isSongLink || !detail.songKeyRef) return;
+                    navigateTo(`/songs/${encodeURIComponent(detail.songKeyRef)}`);
+                  };
+                  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+                    if (!isSongLink || !detail.songKeyRef) return;
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      navigateTo(`/songs/${encodeURIComponent(detail.songKeyRef)}`);
+                    }
+                  };
+                  const linkClasses = isSongLink
+                    ? 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background hover:border-primary/70'
+                    : '';
+                  return (
+                    <div
+                      className={`rounded-md border bg-card/70 p-3 ${linkClasses}`}
+                      onClick={isSongLink ? handleClick : undefined}
+                      onKeyDown={handleKeyDown}
+                      role={isSongLink ? 'button' : undefined}
+                      tabIndex={isSongLink ? 0 : -1}
+                      aria-label={isSongLink ? `View song stats` : undefined}
+                    >
+                      <div className="flex flex-wrap items-baseline justify-between gap-2">
+                        <div className="flex flex-wrap items-baseline gap-2">
+                          <span className="font-medium">{detail.songName}</span>
+                          {detail.duration ? (
+                            <span className="text-xs text-muted-foreground">({detail.duration})</span>
+                          ) : null}
+                          {detail.transitionLabel ? (
+                            <span className="text-xs uppercase text-muted-foreground">{detail.transitionLabel}</span>
+                          ) : null}
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          {detail.weightLabel ? (
+                            <span className={`font-mono ${weightColorClass(detail.weightNormalized)}`}>
+                              Weight {detail.weightLabel}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                        {detail.coverLabel ? <span>{detail.coverLabel}</span> : null}
+                      </div>
+                      {detail.footnote ? (
+                        <p className="mt-2 text-xs text-muted-foreground">{detail.footnote}</p>
+                      ) : null}
+                    </div>
+                  );
+                };
+
+                const renderArrow = (key: string) => (
+                  <div key={key} className="flex justify-center py-0.5">
+                    <span className="sr-only">Segue into next song</span>
+                    <span aria-hidden="true" className="text-sm text-muted-foreground">
+                      ↓
                     </span>
                   </div>
-                  <ol className="space-y-2">
-                    {group.entries.map((item, idx) => {
-                      const entry = item.entry;
-                      const songName =
-                        typeof entry?.songname === 'string' && entry.songname.trim().length > 0
-                          ? entry.songname
-                          : 'Unknown Song';
-                      const footnote =
-                        typeof entry?.footnote === 'string' && entry.footnote.trim().length > 0
-                          ? entry.footnote.trim()
-                          : null;
-                      const transition =
-                        typeof entry?.transition === 'string' && entry.transition.trim().length > 0
-                          ? entry.transition.trim()
-                          : null;
-                      const isSegueArrow = Boolean(transition && /[>→↠↣]/.test(transition));
-                      const transitionLabel = isSegueArrow ? null : transition;
-                      const duration = formatDuration(entry?.tracktime);
-                      const rarity = songDetails[item.key];
-                      const weightLabel = rarity ? formatNumber(rarity.normalized) : null;
-                      const usageLabel = rarity ? formatPercentage(rarity.percentage) : null;
-                      const playsLabel =
-                        rarity && rarity.plays > 0
-                          ? `${rarity.plays.toLocaleString()} play${rarity.plays === 1 ? '' : 's'}`
-                          : null;
-                      const firstPlayedLabel = rarity?.firstDate ? formatFirstPlayed(rarity.firstDate) : null;
-                      return (
-                        <React.Fragment key={item.key}>
-                          <li className="rounded-md border bg-card/70 p-3">
-                          <div className="flex flex-wrap items-baseline justify-between gap-2">
-                            <div className="flex flex-wrap items-baseline gap-2">
-                              <span className="font-medium">{songName}</span>
-                              {transitionLabel ? (
-                                <span className="text-xs uppercase text-muted-foreground">{transitionLabel}</span>
-                              ) : null}
+                );
+
+                return (
+                  <div key={group.key} className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary">{group.label}</Badge>
+                      <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                        {group.entries.length} song{group.entries.length === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      {segments.map((segment, segmentIndex) => {
+                        if (segment.isRun && segment.entries.length > 1) {
+                          return (
+                            <div
+                              key={`${group.key}-segment-${segmentIndex}`}
+                              className="rounded-lg border border-primary/40 bg-primary/5 p-2"
+                            >
+                              {segment.entries.map((detail, entryIndex) => (
+                                <React.Fragment key={detail.itemKey}>
+                                  {renderRow(detail)}
+                                  {detail.isSegueArrow && entryIndex < segment.entries.length - 1
+                                    ? renderArrow(`${detail.itemKey}-arrow`)
+                                    : null}
+                                </React.Fragment>
+                              ))}
                             </div>
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                              {duration ? <span>{duration}</span> : null}
-                              {weightLabel ? (
-                                <span className="font-mono text-primary">Wt {weightLabel}</span>
-                              ) : null}
-                            </div>
-                          </div>
-                          <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                            {usageLabel ? <span>Usage {usageLabel}</span> : null}
-                            {playsLabel ? <span>{playsLabel}</span> : null}
-                            {firstPlayedLabel ? <span>FTP {firstPlayedLabel}</span> : null}
-                            {rarity ? (
-                              <span>{rarity.isCover ? 'Cover · 50% weight' : 'Original'}</span>
-                            ) : null}
-                          </div>
-                          {footnote ? (
-                            <p className="mt-2 text-xs text-muted-foreground">{footnote}</p>
-                          ) : null}
-                          </li>
-                          {isSegueArrow && idx < group.entries.length - 1 ? (
-                            <div className="flex justify-center py-1">
-                              <span className="sr-only">Segue into next song</span>
-                              <span aria-hidden="true" className="text-lg text-muted-foreground">
-                                ↓
-                              </span>
-                            </div>
-                          ) : null}
-                        </React.Fragment>
-                      );
-                    })}
-                  </ol>
-                </div>
-              ))}
+                          );
+                        }
+                        return (
+                          segment.entries.map((detail, entryIndex) => (
+                            <React.Fragment key={detail.itemKey}>
+                              {renderRow(detail)}
+                              {detail.isSegueArrow && entryIndex < segment.entries.length - 1
+                                ? renderArrow(`${detail.itemKey}-arrow`)
+                                : null}
+                            </React.Fragment>
+                          ))
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </CardContent>
@@ -820,3 +995,255 @@ const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores, songDetails })
 };
 
 export default App;
+
+const SongDetailPage: React.FC<SongDetailProps> = ({ dataset, songDetails, songAggregates, scores }) => {
+  const { songKey: encodedSongKey } = useParams<{ songKey: string }>();
+  const songKeyValue = encodedSongKey ? decodeURIComponent(encodedSongKey) : null;
+  const navigate = useNavigate();
+
+  const showMap = useMemo(() => {
+    const map = new Map<number, any>();
+    if (!dataset?.shows) return map;
+    for (const show of dataset.shows) {
+      if (show?.show_id != null) map.set(show.show_id, show);
+    }
+    return map;
+  }, [dataset]);
+
+  const scoreByShow = useMemo(() => {
+    const map = new Map<number, RarityScore>();
+    for (const score of scores) {
+      map.set(score.showId, score);
+    }
+    return map;
+  }, [scores]);
+
+  const occurrences = useMemo(() => {
+    if (!dataset?.setlists || !songKeyValue) return [];
+    const items: Array<{
+      entry: any;
+      detail: SongRarityDetail;
+      show: any;
+      displayDate: string;
+      dateValue: number;
+      setLabel: string;
+      duration: string | null;
+    }> = [];
+    dataset.setlists.forEach((entry, index) => {
+      const entryKey = createSetlistEntryKey(entry, index);
+      const detail = songDetails[entryKey];
+      if (!detail || detail.songKey !== songKeyValue) return;
+      const show = entry?.show_id != null ? showMap.get(entry.show_id) : undefined;
+      const dateRaw = entry?.showdate ?? show?.showdate ?? null;
+      const parsed =
+        dateRaw && !String(dateRaw).includes('T')
+          ? new Date(`${dateRaw}T00:00:00Z`)
+          : dateRaw
+            ? new Date(dateRaw)
+            : null;
+      const dateValue = parsed && !Number.isNaN(parsed.getTime()) ? parsed.getTime() : Number.NEGATIVE_INFINITY;
+      const setMeta = getSetMeta(entry);
+      items.push({
+        entry,
+        detail,
+        show,
+        displayDate: formatDateDisplay(dateRaw),
+        dateValue,
+        setLabel: setMeta.label,
+        duration: formatDuration(entry?.tracktime)
+      });
+    });
+    items.sort((a, b) => {
+      if (a.dateValue === b.dateValue) return 0;
+      return b.dateValue - a.dateValue;
+    });
+    return items;
+  }, [dataset, showMap, songDetails, songKeyValue]);
+
+  const aggregate = songKeyValue ? songAggregates[songKeyValue] : undefined;
+
+  if (!dataset) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Load Dataset</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            Load the cached dataset to explore song analytics. Use the “Load Local Dataset” button above.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!songKeyValue) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Song Not Found</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            The requested song identifier is missing or invalid. Try selecting a song from the show view.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!aggregate) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Song Not Found</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            This song does not appear in the cached dataset. Load the latest dataset and try again.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const displayName =
+    aggregate.name ??
+    occurrences.find((item) => typeof item.entry?.songname === 'string')?.entry?.songname ??
+    'Unknown Song';
+
+  const totalEntries = occurrences.length;
+  const averageWeight =
+    totalEntries > 0
+      ? occurrences.reduce((acc, item) => acc + (item.detail.normalized ?? 0), 0) / totalEntries
+      : null;
+  const coverLabel =
+    aggregate.coverCount > 0 && aggregate.originalCount > 0
+      ? `${aggregate.coverCount.toLocaleString()} covers / ${aggregate.originalCount.toLocaleString()} originals`
+      : aggregate.coverCount > 0
+        ? `${aggregate.coverCount.toLocaleString()} cover appearance${aggregate.coverCount === 1 ? '' : 's'}`
+        : `${aggregate.originalCount.toLocaleString()} original appearance${aggregate.originalCount === 1 ? '' : 's'}`;
+
+  return (
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle>{displayName}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div>
+              <p className="text-xs uppercase text-muted-foreground">Shows Played</p>
+              <p className="font-medium">{aggregate.plays.toLocaleString()}</p>
+            </div>
+            <div>
+              <p className="text-xs uppercase text-muted-foreground">Usage Since Debut</p>
+              <p className="font-medium">{formatPercentage(aggregate.percentage)}</p>
+            </div>
+            <div>
+              <p className="text-xs uppercase text-muted-foreground">Average Weight</p>
+              <p className={`font-mono ${weightColorClass(averageWeight)}`}>
+                {averageWeight != null ? formatNumber(averageWeight) : '—'}
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-4 sm:grid-cols-3">
+            <div>
+              <p className="text-xs uppercase text-muted-foreground">First Played</p>
+              <p className="font-medium">{formatDateDisplay(aggregate.firstDate ?? null)}</p>
+            </div>
+            <div>
+              <p className="text-xs uppercase text-muted-foreground">Cover / Original</p>
+              <p className="font-medium">{coverLabel}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Appearances</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {occurrences.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No performances recorded for this song.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-border text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="px-4 py-2 text-left font-medium">Date</th>
+                    <th className="px-4 py-2 text-left font-medium">Show</th>
+                    <th className="px-4 py-2 text-left font-medium">Set</th>
+                    <th className="px-4 py-2 text-right font-medium">Duration</th>
+                    <th className="px-4 py-2 text-left font-medium">Show Notes</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border bg-card">
+                  {occurrences.map((item) => {
+                    const showId = item.entry?.show_id;
+                    const score = showId != null ? scoreByShow.get(showId) : undefined;
+                    const show = item.show;
+                    const venue = show ? decodeHtmlEntities(show.venuename ?? '') : '';
+                    const location = show ? decodeHtmlEntities(show.location ?? '') : '';
+                    const showNotes =
+                      typeof item.entry?.shownotes === 'string' && item.entry.shownotes.trim().length > 0
+                        ? item.entry.shownotes.trim()
+                        : null;
+                    const showLabel =
+                      [venue, location].filter((part) => part && part.length > 0).join(' • ') ||
+                      'Unknown venue';
+                    const handleRowClick = () => {
+                      if (showId != null) navigate(`/shows/${showId}`);
+                    };
+                    const handleRowKeyDown = (event: React.KeyboardEvent<HTMLTableRowElement>) => {
+                      if (showId == null) return;
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        navigate(`/shows/${showId}`);
+                      }
+                    };
+                    const rowClass =
+                      (showId != null
+                        ? 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background '
+                        : '') + 'hover:bg-muted/50';
+                    return (
+                      <tr
+                        key={item.detail.key}
+                        className={rowClass}
+                        onClick={showId != null ? handleRowClick : undefined}
+                        onKeyDown={handleRowKeyDown}
+                        role={showId != null ? 'button' : undefined}
+                        tabIndex={showId != null ? 0 : -1}
+                        aria-label={
+                          showId != null
+                            ? `Open show ${item.displayDate} at ${showLabel}`
+                            : undefined
+                        }
+                      >
+                        <td className="px-4 py-2 font-medium text-primary">{item.displayDate}</td>
+                        <td className="px-4 py-2 text-muted-foreground">
+                          {showLabel}
+                          {score ? (
+                            <span className="ml-2 text-xs text-muted-foreground">
+                              Show rarity {formatNumber(score.rarityScore)}
+                            </span>
+                          ) : null}
+                        </td>
+                        <td className="px-4 py-2">{item.setLabel}</td>
+                        <td className="px-4 py-2 text-right">{item.duration ?? '—'}</td>
+                        <td className="px-4 py-2 text-muted-foreground">
+                          {showNotes ? <span>{showNotes}</span> : <span className="italic text-xs">—</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </>
+  );
+};

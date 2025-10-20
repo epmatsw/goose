@@ -21,6 +21,7 @@ export interface SetlistEntry {
   position?: number | string | null;
   footnote?: string | null;
   transition?: string | null;
+  shownotes?: string | null;
 }
 
 export interface Dataset {
@@ -42,10 +43,12 @@ export interface ComputeResult {
   scores: RarityScore[];
   skipped: RarityScore[];
   songDetails: Record<string, SongRarityDetail>;
+  songAggregates: Record<string, SongAggregate>;
 }
 
 export interface SongRarityDetail {
   key: string;
+  songKey: string;
   showId?: number;
   normalized: number;
   raw: number;
@@ -53,6 +56,18 @@ export interface SongRarityDetail {
   percentage: number;
   isCover: boolean;
   firstDate?: string;
+}
+
+export interface SongAggregate {
+  songKey: string;
+  name: string | null;
+  songId: number | null;
+  slug: string | null;
+  plays: number;
+  percentage: number;
+  firstDate?: string;
+  coverCount: number;
+  originalCount: number;
 }
 
 const W_F = 1.0;
@@ -193,7 +208,7 @@ export function computeRarityScores(dataset: Dataset): ComputeResult {
       year: parseShowYear(show),
       entries: 0
     }));
-    return { scores, skipped: [], songDetails: {} };
+    return { scores, skipped: [], songDetails: {}, songAggregates: {} };
   }
 
   const showDateMap = new Map<number, Date>();
@@ -214,6 +229,7 @@ export function computeRarityScores(dataset: Dataset): ComputeResult {
   const totalEligibleShows = showsWithSetlistDates.length;
 
   const songStats = new Map<string, { showIds: Set<number>; firstDate?: Date }>();
+  const songMeta = new Map<string, { name: string | null; slug: string | null; songId: number | null; coverCount: number; originalCount: number }>();
   for (const entry of setlists) {
     const key = songKey(entry);
     let stats = songStats.get(key);
@@ -223,6 +239,31 @@ export function computeRarityScores(dataset: Dataset): ComputeResult {
     }
     if (entry?.show_id != null) {
       stats.showIds.add(entry.show_id);
+    }
+    let meta = songMeta.get(key);
+    if (!meta) {
+      meta = {
+        name: null,
+        slug: null,
+        songId: null,
+        coverCount: 0,
+        originalCount: 0
+      };
+      songMeta.set(key, meta);
+    }
+    if (entry?.songname && meta.name == null) {
+      meta.name = entry.songname;
+    }
+    if (entry?.slug && meta.slug == null) {
+      meta.slug = entry.slug;
+    }
+    if (entry?.song_id != null && meta.songId == null) {
+      meta.songId = entry.song_id;
+    }
+    if (isCover(entry)) {
+      meta.coverCount += 1;
+    } else {
+      meta.originalCount += 1;
     }
     const entryDate =
       parseShowDate(entry?.showdate ?? undefined) ??
@@ -285,6 +326,7 @@ export function computeRarityScores(dataset: Dataset): ComputeResult {
     const usage = usageBySong.get(item.songKey);
     songDetails[item.entryKey] = {
       key: item.entryKey,
+      songKey: item.songKey,
       showId: item.showId,
       normalized,
       raw: item.raw,
@@ -331,5 +373,21 @@ export function computeRarityScores(dataset: Dataset): ComputeResult {
     });
   }
 
-  return { scores, skipped, songDetails };
+  const songAggregates: Record<string, SongAggregate> = {};
+  for (const [key, usage] of usageBySong.entries()) {
+    const meta = songMeta.get(key);
+    songAggregates[key] = {
+      songKey: key,
+      name: meta?.name ?? null,
+      songId: meta?.songId ?? null,
+      slug: meta?.slug ?? null,
+      plays: usage.plays,
+      percentage: usage.percentage,
+      firstDate: usage.firstDate ? usage.firstDate.toISOString() : undefined,
+      coverCount: meta?.coverCount ?? 0,
+      originalCount: meta?.originalCount ?? 0
+    };
+  }
+
+  return { scores, skipped, songDetails, songAggregates };
 }
