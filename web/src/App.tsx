@@ -7,7 +7,7 @@ import { Select } from './components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Badge } from './components/ui/badge';
 import { clearDataset, loadDataset, saveDataset, GooseDataset } from './lib/cache';
-import { computeRarityScores, RarityScore } from './lib/rarity';
+import { computeRarityScores, RarityScore, createSetlistEntryKey, SongRarityDetail } from './lib/rarity';
 
 type Status = 'idle' | 'loading' | 'ready' | 'error';
 type YearOption = 'all' | number;
@@ -19,6 +19,36 @@ function formatNumber(value: number, decimals = 3) {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals
   });
+}
+
+function formatPercentage(value: number, decimals = 1) {
+  if (!Number.isFinite(value)) return '0%';
+  const percent = value * 100;
+  return `${percent.toFixed(decimals)}%`;
+}
+
+function formatDuration(value?: string | null): string | null {
+  if (value === undefined || value === null) return null;
+  const trimmed = String(value).trim();
+  if (trimmed.length === 0) return null;
+  const parts = trimmed.split(':').map((part) => Number.parseInt(part, 10));
+  if (parts.some((part) => Number.isNaN(part))) {
+    return trimmed;
+  }
+  let totalSeconds = 0;
+  for (const part of parts) {
+    totalSeconds = totalSeconds * 60 + part;
+  }
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
+function formatFirstPlayed(value?: string): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString();
 }
 
 async function fetchDatasetFromLocal(): Promise<GooseDataset> {
@@ -85,7 +115,14 @@ interface DashboardProps {
 interface ShowDetailProps {
   dataset: GooseDataset | null;
   scores: RarityScore[];
+  songDetails: Record<string, SongRarityDetail>;
 }
+
+type ShowEntry = {
+  entry: any;
+  index: number;
+  key: string;
+};
 
 const App: React.FC = () => {
   const [status, setStatus] = useState<Status>('idle');
@@ -138,8 +175,8 @@ const App: React.FC = () => {
     }
   }, [years, yearFilter]);
 
-  const { scores, skipped } = useMemo(() => {
-    if (!dataset) return { scores: [], skipped: [] };
+  const { scores, skipped, songDetails } = useMemo(() => {
+    if (!dataset) return { scores: [], skipped: [], songDetails: {} };
     return computeRarityScores({ shows: dataset.shows, setlists: dataset.setlists });
   }, [dataset]);
 
@@ -300,20 +337,23 @@ const App: React.FC = () => {
                 status={status}
                 years={years}
                 yearFilter={yearFilter}
-              onYearFilterChange={setYearFilter}
-              venueFilter={venueFilter}
-              onVenueFilterChange={setVenueFilter}
-              limit={limit}
-              onLimitChange={(value) => setLimit(Math.max(1, Math.floor(value)))}
-              filteredScores={filteredScores}
-              limitedScores={limitedScores}
-              averageScore={averageScore}
-              omittedCount={omittedCount}
-              onSelectShow={(showId) => navigate(`/shows/${showId}`)}
-            />
-          }
-        />
-          <Route path="/shows/:showId" element={<ShowDetail dataset={dataset} scores={scores} />} />
+                onYearFilterChange={setYearFilter}
+                venueFilter={venueFilter}
+                onVenueFilterChange={setVenueFilter}
+                limit={limit}
+                onLimitChange={(value) => setLimit(Math.max(1, Math.floor(value)))}
+                filteredScores={filteredScores}
+                limitedScores={limitedScores}
+                averageScore={averageScore}
+                omittedCount={omittedCount}
+                onSelectShow={(showId) => navigate(`/shows/${showId}`)}
+              />
+            }
+          />
+          <Route
+            path="/shows/:showId"
+            element={<ShowDetail dataset={dataset} scores={scores} songDetails={songDetails} />}
+          />
           <Route
             path="*"
             element={
@@ -551,7 +591,7 @@ function getSetMeta(entry: any): SetMeta {
   };
 }
 
-const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores }) => {
+const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores, songDetails }) => {
   const { showId } = useParams<{ showId: string }>();
   const numericId = Number.parseInt(String(showId ?? ''), 10);
 
@@ -611,35 +651,41 @@ const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores }) => {
   const location = score?.location || decodeHtmlEntities(show.location ?? '') || 'Unknown location';
   const dateLabel = score?.date ?? show.showdate ?? 'Unknown date';
 
-  const setlistEntries = useMemo(
-    () => dataset.setlists.filter((entry) => entry?.show_id === numericId),
-    [dataset, numericId]
-  );
+  const showEntries = useMemo(() => {
+    if (!dataset?.setlists) return [];
+    return dataset.setlists
+      .map((entry, index) => ({
+        entry,
+        index,
+        key: createSetlistEntryKey(entry, index)
+      }))
+      .filter((item) => item.entry?.show_id === numericId);
+  }, [dataset, numericId]);
 
   const groupedSets = useMemo(() => {
-    if (setlistEntries.length === 0) return [];
-    const sorted = [...setlistEntries].sort((a, b) => {
-      const metaA = getSetMeta(a);
-      const metaB = getSetMeta(b);
+    if (showEntries.length === 0) return [];
+    const sorted = [...showEntries].sort((a, b) => {
+      const metaA = getSetMeta(a.entry);
+      const metaB = getSetMeta(b.entry);
       if (metaA.groupOrder !== metaB.groupOrder) return metaA.groupOrder - metaB.groupOrder;
       if (metaA.position !== metaB.position) return metaA.position - metaB.position;
-      const nameA = (a?.songname ?? '').toString();
-      const nameB = (b?.songname ?? '').toString();
+      const nameA = (a.entry?.songname ?? '').toString();
+      const nameB = (b.entry?.songname ?? '').toString();
       return nameA.localeCompare(nameB);
     });
 
-    const groups: Array<{ key: string; label: string; entries: any[] }> = [];
-    for (const entry of sorted) {
-      const meta = getSetMeta(entry);
+    const groups: Array<{ key: string; label: string; entries: ShowEntry[] }> = [];
+    for (const item of sorted) {
+      const meta = getSetMeta(item.entry);
       let group = groups[groups.length - 1];
       if (!group || group.key !== meta.groupKey) {
         group = { key: meta.groupKey, label: meta.label, entries: [] };
         groups.push(group);
       }
-      group.entries.push(entry);
+      group.entries.push(item);
     }
     return groups;
-  }, [setlistEntries]);
+  }, [showEntries]);
 
   return (
     <>
@@ -669,7 +715,7 @@ const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores }) => {
             </div>
             <div>
               <p className="text-xs uppercase text-muted-foreground">Songs Logged</p>
-              <p className="font-medium">{score?.entries ?? setlistEntries.length}</p>
+              <p className="font-medium">{score?.entries ?? showEntries.length}</p>
             </div>
             <div>
               <p className="text-xs uppercase text-muted-foreground">Cached</p>
@@ -701,7 +747,8 @@ const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores }) => {
                     </span>
                   </div>
                   <ol className="space-y-2">
-                    {group.entries.map((entry: any, index: number) => {
+                    {group.entries.map((item) => {
+                      const entry = item.entry;
                       const songName =
                         typeof entry?.songname === 'string' && entry.songname.trim().length > 0
                           ? entry.songname
@@ -710,18 +757,45 @@ const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores }) => {
                         typeof entry?.footnote === 'string' && entry.footnote.trim().length > 0
                           ? entry.footnote.trim()
                           : null;
+                      const transition =
+                        typeof entry?.transition === 'string' && entry.transition.trim().length > 0
+                          ? entry.transition.trim()
+                          : null;
+                      const duration = formatDuration(entry?.tracktime);
+                      const rarity = songDetails[item.key];
+                      const weightLabel = rarity ? formatNumber(rarity.normalized) : null;
+                      const usageLabel = rarity ? formatPercentage(rarity.percentage) : null;
+                      const playsLabel =
+                        rarity && rarity.plays > 0
+                          ? `${rarity.plays.toLocaleString()} play${rarity.plays === 1 ? '' : 's'}`
+                          : null;
+                      const firstPlayedLabel = rarity?.firstDate ? formatFirstPlayed(rarity.firstDate) : null;
                       return (
-                        <li key={`${group.key}-${index}`} className="rounded-md border bg-card/70 p-3">
+                        <li key={item.key} className="rounded-md border bg-card/70 p-3">
                           <div className="flex flex-wrap items-baseline justify-between gap-2">
-                            <span className="font-medium">{songName}</span>
-                            {entry?.transition && String(entry.transition).trim().length > 0 ? (
-                              <span className="text-xs uppercase text-muted-foreground">
-                                {String(entry.transition).trim()}
-                              </span>
+                            <div className="flex flex-wrap items-baseline gap-2">
+                              <span className="font-medium">{songName}</span>
+                              {transition ? (
+                                <span className="text-xs uppercase text-muted-foreground">{transition}</span>
+                              ) : null}
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              {duration ? <span>{duration}</span> : null}
+                              {weightLabel ? (
+                                <span className="font-mono text-primary">Wt {weightLabel}</span>
+                              ) : null}
+                            </div>
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                            {usageLabel ? <span>Usage {usageLabel}</span> : null}
+                            {playsLabel ? <span>{playsLabel}</span> : null}
+                            {firstPlayedLabel ? <span>FTP {firstPlayedLabel}</span> : null}
+                            {rarity ? (
+                              <span>{rarity.isCover ? 'Cover · 50% weight' : 'Original'}</span>
                             ) : null}
                           </div>
                           {footnote ? (
-                            <p className="mt-1 text-xs text-muted-foreground">{footnote}</p>
+                            <p className="mt-2 text-xs text-muted-foreground">{footnote}</p>
                           ) : null}
                         </li>
                       );

@@ -7,6 +7,7 @@ export interface Show {
 }
 
 export interface SetlistEntry {
+  uniqueid?: string | number | null;
   show_id?: number | null;
   showdate?: string | null;
   song_id?: number | null;
@@ -14,6 +15,12 @@ export interface SetlistEntry {
   songname?: string | null;
   isoriginal?: number | string | null;
   original_artist?: string | null;
+  tracktime?: string | null;
+  settype?: string | null;
+  setnumber?: string | number | null;
+  position?: number | string | null;
+  footnote?: string | null;
+  transition?: string | null;
 }
 
 export interface Dataset {
@@ -34,6 +41,18 @@ export interface RarityScore {
 export interface ComputeResult {
   scores: RarityScore[];
   skipped: RarityScore[];
+  songDetails: Record<string, SongRarityDetail>;
+}
+
+export interface SongRarityDetail {
+  key: string;
+  showId?: number;
+  normalized: number;
+  raw: number;
+  plays: number;
+  percentage: number;
+  isCover: boolean;
+  firstDate?: string;
 }
 
 const W_F = 1.0;
@@ -118,6 +137,25 @@ function songKey(entry: SetlistEntry): string {
   return `unique:${entry.show_id ?? Math.random()}`;
 }
 
+export function createSetlistEntryKey(entry: SetlistEntry, index?: number): string {
+  if (entry?.uniqueid != null) return `uid:${entry.uniqueid}`;
+  const showPart = entry?.show_id != null ? `show:${entry.show_id}` : 'show:unknown';
+  const positionValue = entry?.position ?? entry?.setnumber;
+  const positionPart =
+    positionValue != null && String(positionValue).trim().length > 0
+      ? `pos:${String(positionValue).trim()}`
+      : index != null
+        ? `idx:${index}`
+        : 'pos:unknown';
+  const namePart =
+    entry?.slug && String(entry.slug).trim().length > 0
+      ? `slug:${String(entry.slug).trim().toLowerCase()}`
+      : entry?.songname && String(entry.songname).trim().length > 0
+        ? `name:${String(entry.songname).trim().toLowerCase()}`
+        : 'name:unknown';
+  return `${showPart}|${positionPart}|${namePart}`;
+}
+
 function showsSince(date: Date | undefined, sortedDates: number[], totalEligible: number): number {
   if (totalEligible === 0) return 0;
   if (!date) return totalEligible;
@@ -155,7 +193,7 @@ export function computeRarityScores(dataset: Dataset): ComputeResult {
       year: parseShowYear(show),
       entries: 0
     }));
-    return { scores, skipped: [] };
+    return { scores, skipped: [], songDetails: {} };
   }
 
   const showDateMap = new Map<number, Date>();
@@ -196,6 +234,7 @@ export function computeRarityScores(dataset: Dataset): ComputeResult {
 
   const frequencyBySong = new Map<string, number>();
   const firstDateBySong = new Map<string, Date>();
+  const usageBySong = new Map<string, { plays: number; percentage: number; firstDate?: Date }>();
 
   for (const [key, stats] of songStats.entries()) {
     const plays = Math.max(stats.showIds.size, 1);
@@ -204,21 +243,27 @@ export function computeRarityScores(dataset: Dataset): ComputeResult {
     const percentageMetric = Math.max(percentage * 100, Number.EPSILON);
     frequencyBySong.set(key, percentageMetric);
     if (stats.firstDate) firstDateBySong.set(key, stats.firstDate);
+    usageBySong.set(key, { plays, percentage, firstDate: stats.firstDate });
   }
 
-  const rawRarities = setlists.map((entry) => {
+  const rawRarities = setlists.map((entry, index) => {
     const key = songKey(entry);
     const frequencyMetric = frequencyBySong.get(key) ?? 100;
+    const isCoverEntry = isCover(entry);
     const base = Math.min(1 / frequencyMetric, 1 / F_CAP);
-    const coverFactor = 1 - W_C * (isCover(entry) ? 1 : 0);
+    const coverFactor = 1 - W_C * (isCoverEntry ? 1 : 0);
     const raw = W_F * base * Math.max(coverFactor, 0);
     const firstDate = firstDateBySong.get(key);
     const ftpBonus = firstDate && firstDate >= FTP_YEAR_THRESHOLD
-      ? (isCover(entry) ? FTP_BONUS_COVER : FTP_BONUS_ORIGINAL)
+      ? (isCoverEntry ? FTP_BONUS_COVER : FTP_BONUS_ORIGINAL)
       : 0;
+    const entryKey = createSetlistEntryKey(entry, index);
     return {
       showId: entry?.show_id ?? undefined,
-      raw: raw + ftpBonus
+      raw: raw + ftpBonus,
+      songKey: key,
+      entryKey,
+      isCover: isCoverEntry
     };
   });
 
@@ -229,12 +274,25 @@ export function computeRarityScores(dataset: Dataset): ComputeResult {
   const rarityRange = MAX_NORMALIZED_RARITY - MIN_NORMALIZED_RARITY;
 
   const totalsByShow = new Map<number, number>();
+  const songDetails: Record<string, SongRarityDetail> = {};
   for (const item of rawRarities) {
-    if (item.showId == null) continue;
     const normalized = spread > Number.EPSILON
       ? MIN_NORMALIZED_RARITY + rarityRange * ((item.raw - minRaw) / spread)
       : MAX_NORMALIZED_RARITY;
-    totalsByShow.set(item.showId, (totalsByShow.get(item.showId) ?? 0) + normalized);
+    if (item.showId != null) {
+      totalsByShow.set(item.showId, (totalsByShow.get(item.showId) ?? 0) + normalized);
+    }
+    const usage = usageBySong.get(item.songKey);
+    songDetails[item.entryKey] = {
+      key: item.entryKey,
+      showId: item.showId,
+      normalized,
+      raw: item.raw,
+      plays: usage?.plays ?? 0,
+      percentage: usage?.percentage ?? 0,
+      isCover: item.isCover,
+      firstDate: usage?.firstDate ? usage.firstDate.toISOString() : undefined
+    };
   }
 
   const scores: RarityScore[] = [];
@@ -273,5 +331,5 @@ export function computeRarityScores(dataset: Dataset): ComputeResult {
     });
   }
 
-  return { scores, skipped };
+  return { scores, skipped, songDetails };
 }
