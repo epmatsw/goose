@@ -808,7 +808,7 @@ const App: React.FC = () => {
                 Load Local Dataset
               </Button>
             ) : null}
-            <Button variant="outline" onClick={handleClear}>
+            <Button variant="outline" onClick={handleClear} disabled={!dataset}>
               <Trash2 className="mr-2 h-4 w-4" /> Clear Cache
             </Button>
           </div>
