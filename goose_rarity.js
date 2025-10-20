@@ -79,6 +79,11 @@ function getDatasetFromEnv() {
   return envDatasetValue;
 }
 
+function resetEnvDatasetCache() {
+  envDatasetLoaded = false;
+  envDatasetValue = undefined;
+}
+
 function buildUrl(endpoint, params = {}) {
   const url = new URL(`${API_BASE}/${endpoint}`);
   Object.entries(params).forEach(([key, value]) => {
@@ -547,3 +552,12 @@ async function main() {
 if (import.meta.url === `file://${__filename}`) {
   main();
 }
+
+export {
+  computeRarityScores,
+  formatCsvData,
+  matchesVenueFilter,
+  getDatasetFromEnv,
+  resetEnvDatasetCache as __resetEnvDatasetCache,
+  decodeHtmlEntities
+};

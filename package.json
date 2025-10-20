@@ -8,7 +8,7 @@
   },
   "scripts": {
     "start": "node goose_rarity.js",
-    "test": "vitest",
+    "test": "vitest run",
     "test:e2e": "playwright test",
     "web:dev": "npm run dev --prefix web",
     "web:build": "npm run build --prefix web",
@@ -24,6 +24,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1",
+    "@vitest/coverage-v8": "^3.2.4",
     "vitest": "^3.2.4"
   }
 }
