@@ -1,0 +1,135 @@
+{
+  "fetchedAt": "2024-01-01T00:00:00.000Z",
+  "shows": [
+    {
+      "show_id": 101,
+      "showdate": "2023-08-15",
+      "venuename": "Red Rocks Amphitheatre",
+      "location": "Morrison, CO"
+    },
+    {
+      "show_id": 102,
+      "showdate": "2023-08-16",
+      "venuename": "Mission Ballroom",
+      "location": "Denver, CO"
+    },
+    {
+      "show_id": 103,
+      "showdate": "2022-12-31",
+      "venuename": "Capitol Theatre",
+      "location": "Port Chester, NY"
+    }
+  ],
+  "setlists": [
+    {
+      "uniqueid": "101-1",
+      "show_id": 101,
+      "showdate": "2023-08-15",
+      "song_id": 1,
+      "songname": "Arcadia",
+      "isoriginal": 1,
+      "settype": "set",
+      "setnumber": 1,
+      "position": 1,
+      "tracktime": "12:10"
+    },
+    {
+      "uniqueid": "101-2",
+      "show_id": 101,
+      "showdate": "2023-08-15",
+      "song_id": 2,
+      "songname": "Take On Me",
+      "isoriginal": 0,
+      "original_artist": "A-ha",
+      "settype": "set",
+      "setnumber": 1,
+      "position": 2,
+      "tracktime": "05:02"
+    },
+    {
+      "uniqueid": "101-3",
+      "show_id": 101,
+      "showdate": "2023-08-15",
+      "song_id": 3,
+      "songname": "Animal",
+      "isoriginal": 1,
+      "settype": "set",
+      "setnumber": 1,
+      "position": 3,
+      "tracktime": "08:45"
+    },
+    {
+      "uniqueid": "102-1",
+      "show_id": 102,
+      "showdate": "2023-08-16",
+      "song_id": 1,
+      "songname": "Arcadia",
+      "isoriginal": 1,
+      "settype": "set",
+      "setnumber": 1,
+      "position": 1,
+      "tracktime": "11:58"
+    },
+    {
+      "uniqueid": "102-2",
+      "show_id": 102,
+      "showdate": "2023-08-16",
+      "song_id": 4,
+      "songname": "Dripfield",
+      "isoriginal": 1,
+      "settype": "set",
+      "setnumber": 1,
+      "position": 2,
+      "tracktime": "09:12"
+    },
+    {
+      "uniqueid": "102-3",
+      "show_id": 102,
+      "showdate": "2023-08-16",
+      "song_id": 5,
+      "songname": "Hot Tea",
+      "isoriginal": 1,
+      "settype": "set",
+      "setnumber": 1,
+      "position": 3,
+      "tracktime": "13:30"
+    },
+    {
+      "uniqueid": "103-1",
+      "show_id": 103,
+      "showdate": "2022-12-31",
+      "song_id": 6,
+      "songname": "Empress of Organos",
+      "isoriginal": 1,
+      "settype": "set",
+      "setnumber": 1,
+      "position": 1,
+      "tracktime": "14:05"
+    },
+    {
+      "uniqueid": "103-2",
+      "show_id": 103,
+      "showdate": "2022-12-31",
+      "song_id": 7,
+      "songname": "Creatures",
+      "isoriginal": 1,
+      "settype": "set",
+      "setnumber": 1,
+      "position": 2,
+      "tracktime": "10:47"
+    },
+    {
+      "uniqueid": "103-3",
+      "show_id": 103,
+      "showdate": "2022-12-31",
+      "song_id": 8,
+      "songname": "Slow Ready",
+      "isoriginal": 0,
+      "original_artist": "BØRNS",
+      "settype": "encore",
+      "setnumber": 1,
+      "position": 1,
+      "tracktime": "06:33"
+    }
+  ]
+}

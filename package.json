@@ -9,6 +9,7 @@
   "scripts": {
     "start": "node goose_rarity.js",
     "test": "vitest",
+    "test:e2e": "playwright test",
     "web:dev": "npm run dev --prefix web",
     "web:build": "npm run build --prefix web",
     "web:preview": "npm run preview --prefix web"
@@ -22,6 +23,7 @@
     "node": ">=18.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.1",
     "vitest": "^3.2.4"
   }
 }
