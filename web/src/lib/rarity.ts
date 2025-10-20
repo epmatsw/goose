@@ -35,6 +35,7 @@ export interface RarityScore {
   venue: string;
   location: string;
   rarityScore: number;
+  normalizedScore: number;
   year?: number;
   entries: number;
 }
@@ -205,6 +206,7 @@ export function computeRarityScores(dataset: Dataset): ComputeResult {
       venue: decodeHtmlEntities(show.venuename ?? ''),
       location: decodeHtmlEntities(show.location ?? ''),
       rarityScore: MIN_SHOW_SCORE,
+      normalizedScore: 1,
       year: parseShowYear(show),
       entries: 0
     }));
@@ -352,6 +354,7 @@ export function computeRarityScores(dataset: Dataset): ComputeResult {
         venue,
         location,
         rarityScore: MIN_SHOW_SCORE,
+        normalizedScore: 0,
         year,
         entries
       });
@@ -368,9 +371,24 @@ export function computeRarityScores(dataset: Dataset): ComputeResult {
       venue,
       location,
       rarityScore,
+      normalizedScore: 0,
       year,
       entries
     });
+  }
+
+  if (scores.length > 0) {
+    let minScore = Number.POSITIVE_INFINITY;
+    let maxScore = Number.NEGATIVE_INFINITY;
+    for (const score of scores) {
+      if (score.rarityScore < minScore) minScore = score.rarityScore;
+      if (score.rarityScore > maxScore) maxScore = score.rarityScore;
+    }
+    const spread = maxScore - minScore;
+    for (const score of scores) {
+      score.normalizedScore =
+        spread > Number.EPSILON ? (score.rarityScore - minScore) / spread : 1;
+    }
   }
 
   const songAggregates: Record<string, SongAggregate> = {};

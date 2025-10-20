@@ -586,7 +586,11 @@ const Dashboard: React.FC<DashboardProps> = ({
                       <td className="px-4 py-2 text-primary">{formatDateDisplay(score.date)}</td>
                       <td className="px-4 py-2 text-primary">{score.venue || 'Unknown venue'}</td>
                       <td className="px-4 py-2">{score.location || 'Unknown location'}</td>
-                      <td className="px-4 py-2 text-right font-mono">{formatNumber(score.rarityScore)}</td>
+                      <td
+                        className={`px-4 py-2 text-right font-mono ${weightColorClass(score.normalizedScore)}`}
+                      >
+                        {formatNumber(score.rarityScore)}
+                      </td>
                       <td className="px-4 py-2 text-right">{score.entries}</td>
                     </tr>
                   ))}
@@ -788,7 +792,13 @@ const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores, songDetails })
             </div>
             <div>
               <p className="text-xs uppercase text-muted-foreground">Rarity Score</p>
-              <p className="font-mono text-primary">{score ? formatNumber(score.rarityScore) : 'N/A'}</p>
+              <p
+                className={`font-mono ${
+                  score ? weightColorClass(score.normalizedScore) : 'text-muted-foreground'
+                }`}
+              >
+                {score ? formatNumber(score.rarityScore) : 'N/A'}
+              </p>
             </div>
           </div>
           <div className="mt-4 grid gap-4 sm:grid-cols-3">
@@ -920,7 +930,7 @@ const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores, songDetails })
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           {detail.weightLabel ? (
                             <span className={`font-mono ${weightColorClass(detail.weightNormalized)}`}>
-                              Weight {detail.weightLabel}
+                              Rarity {detail.weightLabel}
                             </span>
                           ) : null}
                         </div>
@@ -1141,7 +1151,7 @@ const SongDetailPage: React.FC<SongDetailProps> = ({ dataset, songDetails, songA
               <p className="font-medium">{formatPercentage(aggregate.percentage)}</p>
             </div>
             <div>
-              <p className="text-xs uppercase text-muted-foreground">Average Weight</p>
+              <p className="text-xs uppercase text-muted-foreground">Rarity</p>
               <p className={`font-mono ${weightColorClass(averageWeight)}`}>
                 {averageWeight != null ? formatNumber(averageWeight) : '—'}
               </p>
@@ -1225,8 +1235,8 @@ const SongDetailPage: React.FC<SongDetailProps> = ({ dataset, songDetails, songA
                         <td className="px-4 py-2 text-muted-foreground">
                           {showLabel}
                           {score ? (
-                            <span className="ml-2 text-xs text-muted-foreground">
-                              Show rarity {formatNumber(score.rarityScore)}
+                            <span className={`ml-2 text-xs font-mono ${weightColorClass(score.normalizedScore)}`}>
+                              Rarity {formatNumber(score.rarityScore)}
                             </span>
                           ) : null}
                         </td>
