@@ -498,12 +498,8 @@ const Dashboard: React.FC<DashboardProps> = ({
                       aria-label={`${score.date ?? 'Unknown date'} at ${score.venue || 'Unknown venue'}`}
                     >
                       <td className="px-4 py-2 text-left font-medium">{index + 1}</td>
-                      <td className="px-4 py-2 text-primary underline-offset-2 group-hover:underline">
-                        {score.date ?? 'Unknown'}
-                      </td>
-                      <td className="px-4 py-2 text-primary underline-offset-2 group-hover:underline">
-                        {score.venue || 'Unknown venue'}
-                      </td>
+                      <td className="px-4 py-2 text-primary">{score.date ?? 'Unknown'}</td>
+                      <td className="px-4 py-2 text-primary">{score.venue || 'Unknown venue'}</td>
                       <td className="px-4 py-2">{score.location || 'Unknown location'}</td>
                       <td className="px-4 py-2 text-right font-mono">{formatNumber(score.rarityScore)}</td>
                       <td className="px-4 py-2 text-right">{score.entries}</td>
@@ -747,7 +743,7 @@ const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores, songDetails })
                     </span>
                   </div>
                   <ol className="space-y-2">
-                    {group.entries.map((item) => {
+                    {group.entries.map((item, idx) => {
                       const entry = item.entry;
                       const songName =
                         typeof entry?.songname === 'string' && entry.songname.trim().length > 0
@@ -761,6 +757,8 @@ const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores, songDetails })
                         typeof entry?.transition === 'string' && entry.transition.trim().length > 0
                           ? entry.transition.trim()
                           : null;
+                      const isSegueArrow = Boolean(transition && /[>→↠↣]/.test(transition));
+                      const transitionLabel = isSegueArrow ? null : transition;
                       const duration = formatDuration(entry?.tracktime);
                       const rarity = songDetails[item.key];
                       const weightLabel = rarity ? formatNumber(rarity.normalized) : null;
@@ -771,12 +769,13 @@ const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores, songDetails })
                           : null;
                       const firstPlayedLabel = rarity?.firstDate ? formatFirstPlayed(rarity.firstDate) : null;
                       return (
-                        <li key={item.key} className="rounded-md border bg-card/70 p-3">
+                        <React.Fragment key={item.key}>
+                          <li className="rounded-md border bg-card/70 p-3">
                           <div className="flex flex-wrap items-baseline justify-between gap-2">
                             <div className="flex flex-wrap items-baseline gap-2">
                               <span className="font-medium">{songName}</span>
-                              {transition ? (
-                                <span className="text-xs uppercase text-muted-foreground">{transition}</span>
+                              {transitionLabel ? (
+                                <span className="text-xs uppercase text-muted-foreground">{transitionLabel}</span>
                               ) : null}
                             </div>
                             <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -797,7 +796,16 @@ const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores, songDetails })
                           {footnote ? (
                             <p className="mt-2 text-xs text-muted-foreground">{footnote}</p>
                           ) : null}
-                        </li>
+                          </li>
+                          {isSegueArrow && idx < group.entries.length - 1 ? (
+                            <div className="flex justify-center py-1">
+                              <span className="sr-only">Segue into next song</span>
+                              <span aria-hidden="true" className="text-lg text-muted-foreground">
+                                ↓
+                              </span>
+                            </div>
+                          ) : null}
+                        </React.Fragment>
                       );
                     })}
                   </ol>
