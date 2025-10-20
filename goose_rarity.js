@@ -57,6 +57,28 @@ commander
   })
   .version('1.0.0');
 
+let envDatasetLoaded = false;
+let envDatasetValue;
+
+function getDatasetFromEnv() {
+  if (envDatasetLoaded) return envDatasetValue;
+  envDatasetLoaded = true;
+  const payload = process.env.ELGOOSE_DATASET_JSON;
+  if (payload === undefined) {
+    envDatasetValue = undefined;
+    return envDatasetValue;
+  }
+
+  try {
+    envDatasetValue = JSON.parse(payload);
+  } catch (error) {
+    throw new Error(
+      `Failed to parse dataset from ELGOOSE_DATASET_JSON: ${error.message ?? error}`
+    );
+  }
+  return envDatasetValue;
+}
+
 function buildUrl(endpoint, params = {}) {
   const url = new URL(`${API_BASE}/${endpoint}`);
   Object.entries(params).forEach(([key, value]) => {
@@ -421,6 +443,12 @@ async function writeCsv(filePath, csvContent) {
 }
 
 async function ensureDataset(updateRequested) {
+  const datasetFromEnv = getDatasetFromEnv();
+  if (datasetFromEnv !== undefined) {
+    console.log(chalk.gray('Using dataset provided via ELGOOSE_DATASET_JSON.'));
+    return datasetFromEnv;
+  }
+
   const exists = await fileExists(cachePath);
   if (!exists || updateRequested) {
     console.log(chalk.cyan(updateRequested ? 'Refreshing elgoose dataset…' : 'Downloading elgoose dataset…'));

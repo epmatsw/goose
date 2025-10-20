@@ -8,6 +8,7 @@
   },
   "scripts": {
     "start": "node goose_rarity.js",
+    "test": "vitest",
     "web:dev": "npm run dev --prefix web",
     "web:build": "npm run build --prefix web",
     "web:preview": "npm run preview --prefix web"
@@ -19,5 +20,8 @@
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.4"
   }
 }
