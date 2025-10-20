@@ -154,55 +154,184 @@ async function fetchEndpoint(endpoint, params = {}) {
   return body.data;
 }
 
-async function downloadDataset() {
-  const shows = await fetchEndpoint('shows.json');
-  const setlists = await fetchAllSetlistsForShows(shows);
-
-  return {
-    fetchedAt: new Date().toISOString(),
-    shows,
-    setlists
-  };
+function toNumericId(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) return undefined;
+    const parsed = Number.parseInt(trimmed, 10);
+    if (!Number.isNaN(parsed)) {
+      return parsed;
+    }
+  }
+  return undefined;
 }
 
-async function fetchAllSetlistsForShows(shows, concurrency = 5) {
-  const results = [];
-  const errors = [];
-  let index = 0;
+function stableStringify(value) {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(',')}]`;
+  }
+  const entries = Object.entries(value).sort(([left], [right]) => left.localeCompare(right));
+  return `{${entries.map(([key, val]) => `"${key}":${stableStringify(val)}`).join(',')}}`;
+}
 
-  const workerCount = Math.min(concurrency, shows.length || 1);
-  async function worker() {
-    while (true) {
-      const currentIndex = index;
-      if (currentIndex >= shows.length) break;
-      index += 1;
+function createSetlistEntryKey(entry) {
+  if (!entry || typeof entry !== 'object') return undefined;
+  const candidateKeys = [
+    'entry_id',
+    'setlist_entry_id',
+    'id',
+    'songhistory_id',
+    'songhistoryid',
+    'uniqueid'
+  ];
+  for (const key of candidateKeys) {
+    if (entry[key] !== undefined && entry[key] !== null) {
+      return `${key}:${String(entry[key])}`;
+    }
+  }
+  const showId = toNumericId(entry.show_id);
+  const songId =
+    entry.song_id ??
+    entry.songid ??
+    entry.songhistoryid ??
+    entry.uniqueid ??
+    entry.songname ??
+    'unknown';
+  const position =
+    entry.position ??
+    entry.sortorder ??
+    entry.setorder ??
+    entry.songorder ??
+    entry.uniqueorder ??
+    'unknown';
+  return `show:${showId ?? 'unknown'}:song:${songId}:pos:${position}:hash:${stableStringify(entry)}`;
+}
 
-      const show = shows[currentIndex];
-      try {
-        const entries = await fetchEndpoint(`setlists/show_id/${show.show_id}.json`);
-        if (Array.isArray(entries)) {
-          results.push(...entries);
-        }
-      } catch (error) {
-        errors.push({ showId: show.show_id, error });
+async function syncDatasetFromApi(existingDataset) {
+  const baseline = existingDataset ?? null;
+  const existingShows = Array.isArray(baseline?.shows) ? baseline.shows : [];
+  const existingSetlists = Array.isArray(baseline?.setlists) ? baseline.setlists : [];
+
+  const existingShowById = new Map();
+  for (const show of existingShows) {
+    const showId = toNumericId(show?.show_id);
+    if (showId !== undefined && !existingShowById.has(showId)) {
+      existingShowById.set(showId, show);
+    }
+  }
+
+  const latestShows = await fetchEndpoint('shows.json');
+  const mergedShows = [];
+  const newShows = [];
+
+  for (const rawShow of Array.isArray(latestShows) ? latestShows : []) {
+    const showId = toNumericId(rawShow?.show_id);
+    if (showId !== undefined && existingShowById.has(showId)) {
+      mergedShows.push(existingShowById.get(showId));
+    } else {
+      mergedShows.push(rawShow);
+      if (showId !== undefined) {
+        newShows.push({ id: showId, record: rawShow });
       }
     }
   }
 
-  const workers = Array.from({ length: workerCount }, () => worker());
-  await Promise.all(workers);
-
-  if (errors.length > 0) {
-    const detail = errors
-      .slice(0, 5)
-      .map((item) => `${item.showId}: ${item.error.message || item.error}`)
-      .join('; ');
-    throw new Error(
-      `Failed to fetch setlists for ${errors.length} show(s). Sample: ${detail}`
-    );
+  for (const show of existingShows) {
+    const showId = toNumericId(show?.show_id);
+    if (
+      showId !== undefined &&
+      !mergedShows.some((candidate) => toNumericId(candidate?.show_id) === showId)
+    ) {
+      mergedShows.push(show);
+    }
   }
 
-  return results;
+  const existingEntryKeys = new Set();
+  for (const entry of existingSetlists) {
+    const key = createSetlistEntryKey(entry);
+    if (key) {
+      existingEntryKeys.add(key);
+    }
+  }
+
+  const combinedSetlists = [...existingSetlists];
+  const newEntriesByShow = new Map();
+
+  if (newShows.length > 0) {
+    let index = 0;
+    const errors = [];
+
+    async function worker() {
+      while (index < newShows.length) {
+        const currentIndex = index;
+        index += 1;
+        const { id } = newShows[currentIndex];
+        try {
+          const entries = await fetchEndpoint(`setlists/show_id/${id}.json`);
+          if (!Array.isArray(entries) || entries.length === 0) continue;
+          const filtered = [];
+          for (const entry of entries) {
+            const key = createSetlistEntryKey(entry);
+            if (key && existingEntryKeys.has(key)) {
+              continue;
+            }
+            if (key) {
+              existingEntryKeys.add(key);
+            }
+            filtered.push(entry);
+          }
+          if (filtered.length > 0) {
+            newEntriesByShow.set(id, filtered);
+          }
+        } catch (error) {
+          errors.push({ showId: id, error });
+        }
+      }
+    }
+
+    const workerCount = Math.min(5, Math.max(1, newShows.length));
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+    if (errors.length > 0) {
+      const detail = errors
+        .slice(0, 5)
+        .map((item) => `${item.showId}: ${item.error?.message || item.error}`)
+        .join('; ');
+      throw new Error(`Failed to fetch setlists for ${errors.length} new show(s). Sample: ${detail}`);
+    }
+
+    for (const show of mergedShows) {
+      const showId = toNumericId(show?.show_id);
+      if (showId === undefined) continue;
+      const additions = newEntriesByShow.get(showId);
+      if (additions && additions.length > 0) {
+        combinedSetlists.push(...additions);
+      }
+    }
+  }
+
+  const dataset = {
+    fetchedAt: new Date().toISOString(),
+    shows: mergedShows,
+    setlists: combinedSetlists
+  };
+
+  const addedSetlistCount = Array.from(newEntriesByShow.values()).reduce(
+    (total, entries) => total + entries.length,
+    0
+  );
+
+  return {
+    dataset,
+    addedShowCount: newShows.length,
+    addedSetlistCount
+  };
 }
 
 async function saveDataset(filePath, data) {
@@ -463,11 +592,32 @@ async function ensureDataset(updateRequested, { baseDir = process.cwd(), env = p
 
   const cachePath = path.resolve(baseDir, CACHE_FILENAME);
   const exists = await fileExists(cachePath);
-  if (!exists || updateRequested) {
-    console.log(chalk.cyan(updateRequested ? 'Refreshing elgoose dataset…' : 'Downloading elgoose dataset…'));
-    const dataset = await downloadDataset();
+  if (!exists) {
+    console.log(chalk.cyan('Downloading elgoose dataset…'));
+    const { dataset, addedShowCount, addedSetlistCount } = await syncDatasetFromApi();
     await saveDataset(cachePath, dataset);
-    console.log(chalk.green(`Dataset saved to ${path.relative(baseDir, cachePath)}`));
+    console.log(
+      chalk.green(
+        `Dataset saved to ${path.relative(baseDir, cachePath)} (${addedShowCount} shows / ${addedSetlistCount} setlist entries)`
+      )
+    );
+    return dataset;
+  }
+
+  if (updateRequested) {
+    console.log(chalk.cyan('Checking for new shows…'));
+    const current = await loadDataset(cachePath);
+    const { dataset, addedShowCount, addedSetlistCount } = await syncDatasetFromApi(current);
+    if (current && addedShowCount === 0 && addedSetlistCount === 0) {
+      console.log(chalk.gray('No new shows found; cached dataset remains current.'));
+      return current;
+    }
+    await saveDataset(cachePath, dataset);
+    console.log(
+      chalk.green(
+        `Dataset updated with ${addedShowCount} new show(s) and ${addedSetlistCount} setlist entries.`
+      )
+    );
     return dataset;
   }
 
@@ -589,5 +739,6 @@ export {
   writeCsv as __writeCsv,
   runCli as __runCli,
   createCommander as __createCommander,
+  syncDatasetFromApi as __syncDatasetFromApi,
   ensureDataset as __ensureDataset
 };

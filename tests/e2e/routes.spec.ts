@@ -16,7 +16,7 @@ async function loadDataset(page) {
 
 async function openCoverArtists(page) {
   await page.getByRole('link', { name: /Browse & search cover artists/i }).click();
-  await expect(page).toHaveURL(/\/covers$/);
+  await expect(page).toHaveURL(/\/(#\/)?covers$/);
   await expect(page.getByRole('heading', { name: 'Cover Artists' })).toBeVisible();
   const rows = page.locator('#cover-artists-table tbody tr');
   await expect(rows.first()).toBeVisible();
@@ -45,19 +45,19 @@ test('show detail route renders setlist for selected show', async ({ page }) => 
   await loadDataset(page);
   const firstRow = page.locator('table tbody tr').first();
   await firstRow.click();
-  await expect(page).toHaveURL(/\/shows\/\d+$/);
+  await expect(page).toHaveURL(/\/(#\/)?shows\/\d+$/);
   await expect(page.getByRole('heading', { name: /Setlist/ })).toBeVisible();
   await page.getByRole('button', { name: 'Back' }).click();
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/(#\/)?$/);
 });
 
 test('song detail route shows statistics for selected song', async ({ page }) => {
   await loadDataset(page);
   const firstRow = page.locator('table tbody tr').first();
   await firstRow.click();
-  await expect(page).toHaveURL(/\/shows\/\d+$/);
+  await expect(page).toHaveURL(/\/(#\/)?shows\/\d+$/);
   await page.getByRole('button', { name: 'View song stats' }).first().click();
-  await expect(page).toHaveURL(/\/songs\//);
+  await expect(page).toHaveURL(/\/(#\/)?songs\//);
   await expect(page.getByText('Shows Played')).toBeVisible();
 });
 
@@ -137,9 +137,8 @@ test('cover artists table supports sorting toggles', async ({ page }) => {
   await artistHeader.click();
   const namesAscending = await extractNames();
   const collator = new Intl.Collator(undefined, { sensitivity: 'base', ignorePunctuation: true });
-  for (let i = 0; i < namesAscending.length - 1; i += 1) {
-    expect(collator.compare(namesAscending[i], namesAscending[i + 1])).toBeLessThanOrEqual(0);
-  }
+  const sortedNames = [...namesAscending].sort((a, b) => collator.compare(a, b));
+  expect(namesAscending).toEqual(sortedNames);
 });
 
 test('cover artist detail metrics and song sorting', async ({ page }) => {
@@ -172,6 +171,23 @@ test('cover artist detail metrics and song sorting', async ({ page }) => {
   }
 
   await page.getByRole('button', { name: 'Covers Logged' }).click();
+  await page.waitForFunction(() => {
+    const rows = Array.from(document.querySelectorAll('table tbody tr'));
+    if (rows.length < 2) return false;
+    const values = rows.map((row) => {
+      const cell = row.querySelectorAll('td')[1];
+      if (!cell) return Number.NaN;
+      const parsed = Number.parseInt(cell.textContent ?? '', 10);
+      return Number.isNaN(parsed) ? Number.NaN : parsed;
+    });
+    if (values.some((value) => Number.isNaN(value))) return false;
+    for (let i = 0; i < values.length - 1; i += 1) {
+      if (values[i] < values[i + 1]) {
+        return false;
+      }
+    }
+    return true;
+  });
   if (songRowCount > 1) {
     for (let i = 0; i < songRowCount - 1; i += 1) {
       const current = Number.parseInt(await songRows.nth(i).locator('td').nth(1).innerText(), 10);
@@ -181,7 +197,7 @@ test('cover artist detail metrics and song sorting', async ({ page }) => {
   }
 
   await page.getByRole('button', { name: 'All Cover Artists' }).click();
-  await expect(page).toHaveURL(/\/covers$/);
+  await expect(page).toHaveURL(/\/(#\/)?covers$/);
 });
 
 test('song detail view highlights setlist groups and rarity', async ({ page }) => {
@@ -191,7 +207,7 @@ test('song detail view highlights setlist groups and rarity', async ({ page }) =
   const missionRow = page.locator('#top-shows-table tbody tr').first();
   await expect(missionRow).toContainText(/Mission Ballroom/);
   await missionRow.click();
-  await expect(page).toHaveURL(/\/shows\/\d+$/);
+  await expect(page).toHaveURL(/\/(#\/)?shows\/\d+$/);
 
   await expect(page.getByRole('heading', { name: /Setlist/ })).toBeVisible();
   await expect(page.getByText(/Rarity Score/)).toBeVisible();
@@ -200,7 +216,7 @@ test('song detail view highlights setlist groups and rarity', async ({ page }) =
   await expect(page.locator('text=/Cover of/').first()).toBeVisible();
 
   await page.getByRole('button', { name: 'View song stats' }).first().click();
-  await expect(page).toHaveURL(/\/songs\//);
+  await expect(page).toHaveURL(/\/(#\/)?songs\//);
   await expect(page.getByText('Shows Played')).toBeVisible();
   await expect(page.getByText(/^Rarity$/)).toBeVisible();
   const occurrenceRows = page.locator('table tbody tr');

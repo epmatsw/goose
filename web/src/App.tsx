@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
-import { ArrowLeft, Loader2, RefreshCw, Trash2, Upload } from 'lucide-react';
+import { ArrowLeft, Download, Loader2, RefreshCw, Trash2, Upload } from 'lucide-react';
 import { Link, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
@@ -7,6 +7,7 @@ import { Select } from './components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Badge } from './components/ui/badge';
 import { clearDataset, loadDataset, saveDataset, GooseDataset } from './lib/cache';
+import { syncDatasetWithApi } from './lib/api';
 import {
   computeRarityScores,
   RarityScore,
@@ -100,6 +101,7 @@ function weightColorClass(value: number | null): string {
 }
 
 const localeCollator = new Intl.Collator(undefined, { sensitivity: 'base', ignorePunctuation: true });
+const enableLocalDataset = import.meta.env.DEV;
 
 function sortCoverArtists(items: CoverArtistDetail[], sort: CoverArtistSortState): CoverArtistDetail[] {
   const getNumeric = (value: number | undefined | null) => (value == null ? Number.NaN : Number(value));
@@ -716,6 +718,9 @@ const App: React.FC = () => {
   }, []);
 
   const handleLoadLocal = useCallback(async () => {
+    if (!enableLocalDataset) {
+      return;
+    }
     setStatus('loading');
     setError(null);
     try {
@@ -729,6 +734,22 @@ const App: React.FC = () => {
       setStatus('error');
     }
   }, []);
+
+  const handleFetchFromApi = useCallback(async () => {
+    setStatus('loading');
+    setError(null);
+    try {
+      const current = dataset ?? null;
+      const { dataset: next } = await syncDatasetWithApi(current);
+      await saveDataset(next);
+      setDataset(next);
+      setStatus('ready');
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message ?? String(err));
+      setStatus('error');
+    }
+  }, [dataset]);
 
   const handleClear = useCallback(async () => {
     await clearDataset();
@@ -769,14 +790,24 @@ const App: React.FC = () => {
             <Button variant="secondary" onClick={() => fileInputRef.current?.click()}>
               <Upload className="mr-2 h-4 w-4" /> Upload JSON
             </Button>
-            <Button onClick={handleLoadLocal} disabled={status === 'loading'}>
+            <Button onClick={handleFetchFromApi} disabled={status === 'loading'}>
               {status === 'loading' ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
-                <RefreshCw className="mr-2 h-4 w-4" />
+                <Download className="mr-2 h-4 w-4" />
               )}
-              Load Local Dataset
+              Fetch Latest from API
             </Button>
+            {enableLocalDataset ? (
+              <Button onClick={handleLoadLocal} disabled={status === 'loading'}>
+                {status === 'loading' ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                Load Local Dataset
+              </Button>
+            ) : null}
             <Button variant="outline" onClick={handleClear}>
               <Trash2 className="mr-2 h-4 w-4" /> Clear Cache
             </Button>
