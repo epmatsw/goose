@@ -10,12 +10,12 @@ const __dirname = path.dirname(__filename);
 
 const DATASET_FILENAME = 'elgoose_setlists.json';
 const DATASET_ROUTE = `/data/${DATASET_FILENAME}`;
-const DATASET_BUNDLE_NAME = `data/${DATASET_FILENAME}`;
 const datasetPath = path.resolve(__dirname, '..', DATASET_FILENAME);
 
 function localDatasetPlugin(): Plugin {
   return {
     name: 'goose-local-dataset',
+    apply: 'serve',
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
         if (!req.url?.startsWith(DATASET_ROUTE)) {
@@ -36,19 +36,6 @@ function localDatasetPlugin(): Plugin {
     },
     buildStart() {
       this.addWatchFile(datasetPath);
-    },
-    async generateBundle() {
-      try {
-        const source = await readFile(datasetPath, 'utf-8');
-        this.emitFile({
-          type: 'asset',
-          fileName: DATASET_BUNDLE_NAME,
-          source
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        this.warn(`Unable to include ${DATASET_FILENAME}: ${message}`);
-      }
     }
   };
 }
