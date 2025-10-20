@@ -908,8 +908,11 @@ const Dashboard: React.FC<DashboardProps> = ({
         <CardContent>
           <div className="grid gap-4 sm:grid-cols-4">
             <div className="space-y-2">
-              <label className="block text-sm font-medium">Year</label>
+              <label className="block text-sm font-medium" htmlFor="dashboard-year-filter">
+                Year
+              </label>
               <Select
+                id="dashboard-year-filter"
                 value={yearFilter === 'all' ? 'all' : String(yearFilter)}
                 onChange={(event) => {
                   const value = event.target.value;
@@ -925,16 +928,22 @@ const Dashboard: React.FC<DashboardProps> = ({
               </Select>
             </div>
             <div className="space-y-2">
-              <label className="block text-sm font-medium">Venue filter</label>
+              <label className="block text-sm font-medium" htmlFor="dashboard-venue-filter">
+                Venue filter
+              </label>
               <Input
+                id="dashboard-venue-filter"
                 placeholder="Search venues or locations"
                 value={venueFilter}
                 onChange={(event) => onVenueFilterChange(event.target.value)}
               />
             </div>
             <div className="space-y-2">
-              <label className="block text-sm font-medium">Top N results</label>
+              <label className="block text-sm font-medium" htmlFor="dashboard-limit-input">
+                Top N results
+              </label>
               <Input
+                id="dashboard-limit-input"
                 type="number"
                 min={1}
                 value={limit}
@@ -976,7 +985,11 @@ const Dashboard: React.FC<DashboardProps> = ({
             <p className="text-sm text-muted-foreground">No shows match the selected filters.</p>
           ) : (
             <div className="overflow-x-auto table-wrapper">
-              <table className="min-w-full divide-y divide-border text-sm">
+              <table
+                id="top-shows-table"
+                aria-label="Top shows"
+                className="min-w-full divide-y divide-border text-sm"
+              >
                 <thead className="bg-muted/50">
                   <tr>
                     <th className="px-4 py-2 text-left font-medium">#</th>
@@ -1931,7 +1944,11 @@ const CoverArtistIndex: React.FC<CoverArtistIndexProps> = ({ artists }) => {
           </p>
         ) : (
           <div className="overflow-x-auto table-wrapper">
-            <table className="min-w-full divide-y divide-border text-sm">
+            <table
+              id="cover-artists-table"
+              aria-label="Cover artists"
+              className="min-w-full divide-y divide-border text-sm"
+            >
               <thead className="bg-muted/50">
                 <tr>
                   <th

@@ -10,6 +10,7 @@
     "start": "node goose_rarity.js",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "coverage:e2e": "node scripts/convert-playwright-coverage.mjs",
     "web:dev": "npm run dev --prefix web",
     "web:build": "npm run build --prefix web",
     "web:preview": "npm run preview --prefix web"
@@ -25,6 +26,10 @@
   "devDependencies": {
     "@playwright/test": "^1.56.1",
     "@vitest/coverage-v8": "^3.2.4",
+    "istanbul-lib-coverage": "^3.2.2",
+    "istanbul-lib-report": "^3.0.1",
+    "istanbul-reports": "^3.2.0",
+    "v8-to-istanbul": "^9.3.0",
     "vitest": "^3.2.4"
   }
 }
