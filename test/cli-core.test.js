@@ -165,5 +165,6 @@ describe('decodeHtmlEntities', () => {
   it('decodes HTML entities and smart quotes', () => {
     expect(decodeHtmlEntities('Goose &amp; Friends')).toBe('Goose & Friends');
     expect(decodeHtmlEntities('“Quoted” &apos;text&apos;')).toBe('“Quoted” ’text’');
+    expect(decodeHtmlEntities('&quot;Fresh&quot; &amp; &#x27;Clean&#x27;')).toBe('”Fresh” & ’Clean’');
   });
 });

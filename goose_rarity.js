@@ -7,7 +7,7 @@
  * `--update` to refresh the local cache, and `--outfile` to choose where the rarity CSV is written.
  */
 
-import { Command } from 'commander';
+import { Command, InvalidOptionArgumentError } from 'commander';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -32,38 +32,44 @@ const FTP_YEAR_THRESHOLD = new Date('2020-01-01T00:00:00Z');
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const cachePath = path.resolve(process.cwd(), CACHE_FILENAME);
-
-const commander = new Command();
-commander
-  .name('goose-rarity')
-  .description('Fetch Goose setlists from elgoose.net and compute rarity scores for each show.')
-  .option('--update', 'Re-fetch setlist data from the API and refresh the cache.')
-  .option('--outfile <path>', 'Path to write the rarity CSV output.', DEFAULT_OUTFILE)
-  .option('--year <year>', 'Limit computations to shows from the specified calendar year.', (value) => {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isNaN(parsed)) {
-      throw new commander.InvalidOptionArgumentError('Year must be an integer.');
-    }
-    return parsed;
-  })
-  .option('--venue <term>', 'Case-insensitive substring used to match venue or location names.')
-  .option('--limit <number>', 'Number of rarest shows to display.', (value) => {
-    const parsed = Number.parseInt(value, 10);
-    if (!Number.isInteger(parsed) || parsed <= 0) {
-      throw new commander.InvalidOptionArgumentError('Limit must be a positive integer.');
-    }
-    return parsed;
-  })
-  .version('1.0.0');
-
 let envDatasetLoaded = false;
 let envDatasetValue;
+let envDatasetCacheKey;
 
-function getDatasetFromEnv() {
-  if (envDatasetLoaded) return envDatasetValue;
+function createCommander() {
+  const program = new Command();
+  program
+    .name('goose-rarity')
+    .description('Fetch Goose setlists from elgoose.net and compute rarity scores for each show.')
+    .option('--update', 'Re-fetch setlist data from the API and refresh the cache.')
+    .option('--outfile <path>', 'Path to write the rarity CSV output.', DEFAULT_OUTFILE)
+    .option('--year <year>', 'Limit computations to shows from the specified calendar year.', (value) => {
+      const parsed = Number.parseInt(value, 10);
+      if (Number.isNaN(parsed)) {
+        throw new InvalidOptionArgumentError('Year must be an integer.');
+      }
+      return parsed;
+    })
+    .option('--venue <term>', 'Case-insensitive substring used to match venue or location names.')
+    .option('--limit <number>', 'Number of rarest shows to display.', (value) => {
+      const parsed = Number.parseInt(value, 10);
+      if (!Number.isInteger(parsed) || parsed <= 0) {
+        throw new InvalidOptionArgumentError('Limit must be a positive integer.');
+      }
+      return parsed;
+    })
+    .version('1.0.0');
+  return program;
+}
+
+function getDatasetFromEnv(env = process.env) {
+  const payload = env?.ELGOOSE_DATASET_JSON;
+  if (envDatasetLoaded && payload === envDatasetCacheKey) {
+    return envDatasetValue;
+  }
+
   envDatasetLoaded = true;
-  const payload = process.env.ELGOOSE_DATASET_JSON;
+  envDatasetCacheKey = payload;
   if (payload === undefined) {
     envDatasetValue = undefined;
     return envDatasetValue;
@@ -82,6 +88,7 @@ function getDatasetFromEnv() {
 function resetEnvDatasetCache() {
   envDatasetLoaded = false;
   envDatasetValue = undefined;
+  envDatasetCacheKey = undefined;
 }
 
 function buildUrl(endpoint, params = {}) {
@@ -447,23 +454,24 @@ async function writeCsv(filePath, csvContent) {
   await fs.writeFile(filePath, `${csvContent}\n`, 'utf8');
 }
 
-async function ensureDataset(updateRequested) {
-  const datasetFromEnv = getDatasetFromEnv();
+async function ensureDataset(updateRequested, { baseDir = process.cwd(), env = process.env } = {}) {
+  const datasetFromEnv = getDatasetFromEnv(env);
   if (datasetFromEnv !== undefined) {
     console.log(chalk.gray('Using dataset provided via ELGOOSE_DATASET_JSON.'));
     return datasetFromEnv;
   }
 
+  const cachePath = path.resolve(baseDir, CACHE_FILENAME);
   const exists = await fileExists(cachePath);
   if (!exists || updateRequested) {
     console.log(chalk.cyan(updateRequested ? 'Refreshing elgoose dataset…' : 'Downloading elgoose dataset…'));
     const dataset = await downloadDataset();
     await saveDataset(cachePath, dataset);
-    console.log(chalk.green(`Dataset saved to ${path.relative(process.cwd(), cachePath)}`));
+    console.log(chalk.green(`Dataset saved to ${path.relative(baseDir, cachePath)}`));
     return dataset;
   }
 
-  console.log(chalk.gray(`Using cached dataset at ${path.relative(process.cwd(), cachePath)}`));
+  console.log(chalk.gray(`Using cached dataset at ${path.relative(baseDir, cachePath)}`));
   return loadDataset(cachePath);
 }
 
@@ -485,13 +493,14 @@ function printTopShows(scores, limit = 10) {
   })));
 }
 
-async function main() {
-  commander.parse(process.argv);
-  const options = commander.opts();
-  const outfile = path.resolve(process.cwd(), options.outfile ?? DEFAULT_OUTFILE);
+async function runCli({ argv = process.argv, baseDir = process.cwd(), env = process.env } = {}) {
+  const program = createCommander();
+  program.parse(argv, { from: 'node' });
+  const options = program.opts();
+  const outfile = path.resolve(baseDir, options.outfile ?? DEFAULT_OUTFILE);
 
   try {
-    const dataset = await ensureDataset(Boolean(options.update));
+    const dataset = await ensureDataset(Boolean(options.update), { baseDir, env });
     if (!dataset?.shows || !dataset?.setlists) {
       throw new Error('Dataset is missing "shows" or "setlists" arrays. Try running with --update.');
     }
@@ -529,7 +538,7 @@ async function main() {
 
     const csv = formatCsvData(filteredScores);
     await writeCsv(outfile, csv);
-    console.log(chalk.green(`Rarity scores written to ${path.relative(process.cwd(), outfile)}`));
+    console.log(chalk.green(`Rarity scores written to ${path.relative(baseDir, outfile)}`));
 
     if (filteredScores.length > 0) {
       const average =
@@ -543,13 +552,21 @@ async function main() {
 
     const limit = options.limit ?? 10;
     printTopShows(filteredScores, limit);
+    return 0;
   } catch (error) {
     console.error(chalk.red(`Failed to compute rarity scores: ${error.message}`));
-    process.exitCode = 1;
+    return 1;
   }
 }
 
-if (import.meta.url === `file://${__filename}`) {
+async function main() {
+  const exitCode = await runCli();
+  if (exitCode !== 0) {
+    process.exitCode = exitCode;
+  }
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
   main();
 }
 
@@ -559,5 +576,18 @@ export {
   matchesVenueFilter,
   getDatasetFromEnv,
   resetEnvDatasetCache as __resetEnvDatasetCache,
-  decodeHtmlEntities
+  decodeHtmlEntities,
+  buildUrl as __buildUrl,
+  saveDataset as __saveDataset,
+  loadDataset as __loadDataset,
+  fileExists as __fileExists,
+  normalizeIsOriginal as __normalizeIsOriginal,
+  isCover as __isCover,
+  songKey as __songKey,
+  parseShowYear as __parseShowYear,
+  parseShowDate as __parseShowDate,
+  writeCsv as __writeCsv,
+  runCli as __runCli,
+  createCommander as __createCommander,
+  ensureDataset as __ensureDataset
 };
