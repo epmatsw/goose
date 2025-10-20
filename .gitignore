@@ -2,3 +2,4 @@ tmp/
 playwright-report/
 test-results/
 blob-report/
+playwright-coverage/
