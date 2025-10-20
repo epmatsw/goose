@@ -99,6 +99,151 @@ function weightColorClass(value: number | null): string {
   return 'text-rose-500';
 }
 
+const localeCollator = new Intl.Collator(undefined, { sensitivity: 'base', ignorePunctuation: true });
+
+function sortCoverArtists(items: CoverArtistDetail[], sort: CoverArtistSortState): CoverArtistDetail[] {
+  const getNumeric = (value: number | undefined | null) => (value == null ? Number.NaN : Number(value));
+
+  const getDateValue = (value: string | undefined) => {
+    if (!value) return Number.NaN;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? Number.NaN : date.getTime();
+  };
+
+  const comparator = (a: CoverArtistDetail, b: CoverArtistDetail) => {
+    let result = 0;
+    switch (sort.key) {
+      case 'name':
+        result = localeCollator.compare(a.name, b.name);
+        break;
+      case 'uniqueSongs':
+        result = getNumeric(a.uniqueSongs) - getNumeric(b.uniqueSongs);
+        break;
+      case 'uniqueShows':
+        result = getNumeric(a.uniqueShows) - getNumeric(b.uniqueShows);
+        break;
+      case 'firstDate':
+        result = getDateValue(a.firstDate) - getDateValue(b.firstDate);
+        break;
+      case 'lastDate':
+        result = getDateValue(a.lastDate) - getDateValue(b.lastDate);
+        break;
+      case 'totalCovers':
+      default:
+        result = getNumeric(a.totalCovers) - getNumeric(b.totalCovers);
+        break;
+    }
+
+    if (!Number.isFinite(result) || result === 0) {
+      const fallback = localeCollator.compare(a.name, b.name);
+      result = fallback !== 0 ? fallback : 0;
+    }
+
+    return sort.direction === 'asc' ? result : -result;
+  };
+
+  return [...items].sort(comparator);
+}
+
+function sortCoverArtistSongs(items: CoverArtistSongSummary[], sort: CoverArtistSongSortState): CoverArtistSongSummary[] {
+  const getNumeric = (value: number | undefined | null) => (value == null ? Number.NaN : Number(value));
+  const getDateValue = (value: string | undefined) => {
+    if (!value) return Number.NaN;
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? Number.NaN : parsed.getTime();
+  };
+
+  const comparator = (a: CoverArtistSongSummary, b: CoverArtistSongSummary) => {
+    let result = 0;
+    switch (sort.key) {
+      case 'name':
+        result = localeCollator.compare(a.name, b.name);
+        break;
+      case 'coverCount':
+        result = getNumeric(a.coverCount) - getNumeric(b.coverCount);
+        break;
+      case 'uniqueShows':
+        result = getNumeric(a.uniqueShows) - getNumeric(b.uniqueShows);
+        break;
+      case 'firstDate':
+        result = getDateValue(a.firstDate) - getDateValue(b.firstDate);
+        break;
+      case 'lastDate':
+        result = getDateValue(a.lastDate) - getDateValue(b.lastDate);
+        break;
+      case 'averageRarity':
+      default: {
+        const aValue = getNumeric(a.averageRarity);
+        const bValue = getNumeric(b.averageRarity);
+        result = aValue - bValue;
+        break;
+      }
+    }
+
+    if (!Number.isFinite(result) || result === 0) {
+      result = localeCollator.compare(a.name, b.name);
+    }
+
+    return sort.direction === 'asc' ? result : -result;
+  };
+
+  return [...items].sort(comparator);
+}
+
+function parseDurationToSeconds(value: string | null | undefined): number {
+  if (!value) return Number.NaN;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return Number.NaN;
+  const parts = trimmed.split(':').map((part) => Number.parseInt(part, 10));
+  if (parts.some((part) => Number.isNaN(part))) return Number.NaN;
+  let total = 0;
+  for (const part of parts) {
+    total = total * 60 + part;
+  }
+  return total;
+}
+
+type SongOccurrenceRow = {
+  entry: any;
+  detail: SongRarityDetail;
+  show: any;
+  displayDate: string;
+  dateValue: number;
+  setLabel: string;
+  duration: string | null;
+  durationSeconds: number;
+  showLabel: string;
+};
+
+function sortSongOccurrences(items: SongOccurrenceRow[], sort: SongOccurrenceSortState): SongOccurrenceRow[] {
+  const comparator = (a: SongOccurrenceRow, b: SongOccurrenceRow) => {
+    let result = 0;
+    switch (sort.key) {
+      case 'show':
+        result = localeCollator.compare(a.showLabel, b.showLabel);
+        break;
+      case 'set':
+        result = localeCollator.compare(a.setLabel, b.setLabel);
+        break;
+      case 'duration':
+        result = a.durationSeconds - b.durationSeconds;
+        break;
+      case 'date':
+      default:
+        result = a.dateValue - b.dateValue;
+        break;
+    }
+
+    if (!Number.isFinite(result) || result === 0) {
+      result = b.detail.key.localeCompare(a.detail.key);
+    }
+
+    return sort.direction === 'asc' ? result : -result;
+  };
+
+  return [...items].sort(comparator);
+}
+
 async function fetchDatasetFromLocal(): Promise<GooseDataset> {
   const response = await fetch(`${LOCAL_DATASET_URL}?t=${Date.now()}`, { cache: 'no-store' });
   if (!response.ok) {
@@ -142,6 +287,23 @@ function decodeHtmlEntities(value: string | null | undefined): string {
   });
 }
 
+const UNKNOWN_COVER_ARTIST_LABEL = 'Unknown Artist';
+
+function normalizeCoverArtistName(value: string | null | undefined): string {
+  const decoded = decodeHtmlEntities(value ?? '');
+  const trimmed = decoded.trim();
+  return trimmed.length > 0 ? trimmed : UNKNOWN_COVER_ARTIST_LABEL;
+}
+
+function canonicalizeCoverArtistKey(name: string): string {
+  const trimmed = name.trim().toLowerCase();
+  return trimmed.length > 0 ? trimmed : UNKNOWN_COVER_ARTIST_LABEL.toLowerCase();
+}
+
+function buildCoverArtistPath(name: string): string {
+  return `/covers/${encodeURIComponent(canonicalizeCoverArtistKey(name))}`;
+}
+
 interface DashboardProps {
   dataset: GooseDataset | null;
   datasetInfo: string;
@@ -164,6 +326,7 @@ interface ShowDetailProps {
   dataset: GooseDataset | null;
   scores: RarityScore[];
   songDetails: Record<string, SongRarityDetail>;
+  coverArtists: CoverArtistMap;
 }
 
 type ShowEntry = {
@@ -177,6 +340,35 @@ interface SongDetailProps {
   songDetails: Record<string, SongRarityDetail>;
   songAggregates: Record<string, SongAggregate>;
   scores: RarityScore[];
+  coverArtists: CoverArtistMap;
+}
+
+interface CoverArtistIndexProps {
+  artists: CoverArtistDetail[];
+}
+
+interface CoverArtistPageProps {
+  artists: CoverArtistMap;
+}
+
+type SortDirection = 'asc' | 'desc';
+type CoverArtistSortKey = 'name' | 'uniqueSongs' | 'uniqueShows' | 'firstDate' | 'lastDate' | 'totalCovers';
+type CoverArtistSongSortKey = 'name' | 'coverCount' | 'uniqueShows' | 'firstDate' | 'lastDate' | 'averageRarity';
+type SongOccurrenceSortKey = 'date' | 'show' | 'set' | 'duration';
+
+interface CoverArtistSortState {
+  key: CoverArtistSortKey;
+  direction: SortDirection;
+}
+
+interface CoverArtistSongSortState {
+  key: CoverArtistSongSortKey;
+  direction: SortDirection;
+}
+
+interface SongOccurrenceSortState {
+  key: SongOccurrenceSortKey;
+  direction: SortDirection;
 }
 
 type EntryDetail = {
@@ -188,9 +380,34 @@ type EntryDetail = {
   weightLabel: string | null;
   weightNormalized: number | null;
   coverLabel: string | null;
+  coverArtistName: string | null;
+  coverArtistKey: string | null;
   songKeyRef?: string;
   isSegueArrow: boolean;
 };
+
+interface CoverArtistSongSummary {
+  songKey: string;
+  name: string;
+  coverCount: number;
+  uniqueShows: number;
+  averageRarity: number | null;
+  firstDate?: string;
+  lastDate?: string;
+}
+
+interface CoverArtistDetail {
+  key: string;
+  name: string;
+  totalCovers: number;
+  uniqueShows: number;
+  uniqueSongs: number;
+  firstDate?: string;
+  lastDate?: string;
+  songs: CoverArtistSongSummary[];
+}
+
+type CoverArtistMap = Record<string, CoverArtistDetail>;
 
 const App: React.FC = () => {
   const [status, setStatus] = useState<Status>('idle');
@@ -247,6 +464,154 @@ const App: React.FC = () => {
     if (!dataset) return { scores: [], skipped: [], songDetails: {}, songAggregates: {} };
     return computeRarityScores({ shows: dataset.shows, setlists: dataset.setlists });
   }, [dataset]);
+
+  const { coverArtistsList, coverArtistMap } = useMemo(() => {
+    if (!dataset) return { coverArtistsList: [] as CoverArtistDetail[], coverArtistMap: {} as CoverArtistMap };
+    const shows = dataset.shows ?? [];
+    const setlists = dataset.setlists ?? [];
+    if (setlists.length === 0) {
+      return { coverArtistsList: [] as CoverArtistDetail[], coverArtistMap: {} as CoverArtistMap };
+    }
+
+    const showDateMap = new Map<number, Date>();
+    for (const show of shows) {
+      if (show?.show_id == null) continue;
+      const date = parseDate(show.showdate ?? null);
+      if (date) {
+        showDateMap.set(show.show_id, date);
+      }
+    }
+
+    type SongAccumulator = {
+      songKey: string;
+      name: string;
+      coverCount: number;
+      totalRarity: number;
+      firstDate?: number;
+      lastDate?: number;
+      showIds: Set<number>;
+    };
+
+    type ArtistAccumulator = {
+      key: string;
+      name: string;
+      totalCovers: number;
+      firstDate?: number;
+      lastDate?: number;
+      showIds: Set<number>;
+      songs: Map<string, SongAccumulator>;
+    };
+
+    const artistMap = new Map<string, ArtistAccumulator>();
+
+    setlists.forEach((entry, index) => {
+      const entryKey = createSetlistEntryKey(entry, index);
+      const detail = songDetails[entryKey];
+      if (!detail?.isCover) return;
+      const artistName = normalizeCoverArtistName(entry?.original_artist);
+      if (artistName.toLowerCase() === UNKNOWN_COVER_ARTIST_LABEL.toLowerCase()) {
+        return;
+      }
+      const artistKey = canonicalizeCoverArtistKey(artistName);
+      let artist = artistMap.get(artistKey);
+      if (!artist) {
+        artist = {
+          key: artistKey,
+          name: artistName,
+          totalCovers: 0,
+          showIds: new Set<number>(),
+          songs: new Map<string, SongAccumulator>()
+        };
+        artistMap.set(artistKey, artist);
+      }
+
+      const showId = detail.showId ?? (entry?.show_id != null ? Number(entry.show_id) : undefined);
+      if (showId != null) {
+        artist.showIds.add(showId);
+      }
+
+      const entryDate =
+        parseDate(entry?.showdate ?? null) ?? (showId != null ? showDateMap.get(showId) : undefined);
+      const dateValue = entryDate ? entryDate.getTime() : undefined;
+      if (dateValue != null) {
+        artist.firstDate = artist.firstDate == null || dateValue < artist.firstDate ? dateValue : artist.firstDate;
+        artist.lastDate = artist.lastDate == null || dateValue > artist.lastDate ? dateValue : artist.lastDate;
+      }
+
+      const songKeyValue = detail.songKey;
+      const aggregate = songAggregates[songKeyValue];
+      const displayName =
+        aggregate?.name ??
+        (typeof entry?.songname === 'string' && entry.songname.trim().length > 0
+          ? entry.songname
+          : 'Unknown Song');
+
+      let song = artist.songs.get(songKeyValue);
+      if (!song) {
+        song = {
+          songKey: songKeyValue,
+          name: displayName,
+          coverCount: 0,
+          totalRarity: 0,
+          showIds: new Set<number>()
+        };
+        artist.songs.set(songKeyValue, song);
+      }
+
+      song.coverCount += 1;
+      song.totalRarity += detail.normalized ?? 0;
+      if (showId != null) song.showIds.add(showId);
+      if (dateValue != null) {
+        song.firstDate = song.firstDate == null || dateValue < song.firstDate ? dateValue : song.firstDate;
+        song.lastDate = song.lastDate == null || dateValue > song.lastDate ? dateValue : song.lastDate;
+      }
+
+      artist.totalCovers += 1;
+    });
+
+    const coverArtists: CoverArtistDetail[] = [];
+    for (const artist of artistMap.values()) {
+      const songs: CoverArtistSongSummary[] = [];
+      for (const song of artist.songs.values()) {
+        songs.push({
+          songKey: song.songKey,
+          name: song.name,
+          coverCount: song.coverCount,
+          uniqueShows: song.showIds.size,
+          averageRarity: song.coverCount > 0 ? song.totalRarity / song.coverCount : null,
+          firstDate: song.firstDate != null ? new Date(song.firstDate).toISOString() : undefined,
+          lastDate: song.lastDate != null ? new Date(song.lastDate).toISOString() : undefined
+        });
+      }
+      songs.sort((a, b) => {
+        if (b.coverCount !== a.coverCount) return b.coverCount - a.coverCount;
+        return a.name.localeCompare(b.name);
+      });
+
+      coverArtists.push({
+        key: artist.key,
+        name: artist.name,
+        totalCovers: artist.totalCovers,
+        uniqueShows: artist.showIds.size,
+        uniqueSongs: songs.length,
+        firstDate: artist.firstDate != null ? new Date(artist.firstDate).toISOString() : undefined,
+        lastDate: artist.lastDate != null ? new Date(artist.lastDate).toISOString() : undefined,
+        songs
+      });
+    }
+
+    coverArtists.sort((a, b) => {
+      if (b.totalCovers !== a.totalCovers) return b.totalCovers - a.totalCovers;
+      return a.name.localeCompare(b.name);
+    });
+
+    const map: CoverArtistMap = {};
+    for (const artist of coverArtists) {
+      map[artist.key] = artist;
+    }
+
+    return { coverArtistsList: coverArtists, coverArtistMap: map };
+  }, [dataset, songDetails, songAggregates]);
 
   const filteredScores = useMemo(() => {
     let working = scores;
@@ -419,12 +784,21 @@ const App: React.FC = () => {
             }
           />
           <Route
+            path="/covers"
+            element={<CoverArtistIndex artists={coverArtistsList} />}
+          />
+          <Route
+            path="/covers/:artistKey"
+            element={<CoverArtistPage artists={coverArtistMap} />}
+          />
+          <Route
             path="/shows/:showId"
             element={
               <ShowDetail
                 dataset={dataset}
                 scores={scores}
                 songDetails={songDetails}
+                coverArtists={coverArtistMap}
               />
             }
           />
@@ -436,6 +810,7 @@ const App: React.FC = () => {
                 songDetails={songDetails}
                 songAggregates={songAggregates}
                 scores={scores}
+                coverArtists={coverArtistMap}
               />
             }
           />
@@ -543,6 +918,14 @@ const Dashboard: React.FC<DashboardProps> = ({
               </div>
             </div>
           </div>
+          <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
+            <Link
+              to="/covers"
+              className="text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            >
+              Browse &amp; search cover artists
+            </Link>
+          </div>
         </CardContent>
       </Card>
 
@@ -554,7 +937,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           {limitedScores.length === 0 ? (
             <p className="text-sm text-muted-foreground">No shows match the selected filters.</p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto table-wrapper">
               <table className="min-w-full divide-y divide-border text-sm">
                 <thead className="bg-muted/50">
                   <tr>
@@ -570,7 +953,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                   {limitedScores.map((score, index) => (
                     <tr
                       key={score.showId}
-                      className="group cursor-pointer hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                      className="group table-row-virtual cursor-pointer hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                       onClick={() => onSelectShow(score.showId)}
                       onKeyDown={(event) => {
                         if (event.key === 'Enter' || event.key === ' ') {
@@ -676,7 +1059,7 @@ function getSetMeta(entry: any): SetMeta {
   };
 }
 
-const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores, songDetails }) => {
+const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores, songDetails, coverArtists }) => {
   const { showId } = useParams<{ showId: string }>();
   const numericId = Number.parseInt(String(showId ?? ''), 10);
   const navigateTo = useNavigate();
@@ -853,14 +1236,19 @@ const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores, songDetails })
                   const weightNormalized = rarity?.normalized ?? null;
                   const weightLabel = weightNormalized != null ? formatNumber(weightNormalized) : null;
                   const songKeyRef = rarity?.songKey;
-                  const coverArtist =
-                    rarity && rarity.isCover && entry?.original_artist
-                      ? decodeHtmlEntities(entry.original_artist)
-                      : null;
-                  const coverLabel =
-                    rarity && rarity.isCover
-                      ? `Cover${coverArtist ? ` of ${coverArtist}` : ''}`
-                      : null;
+                  const isCoverEntry = Boolean(rarity?.isCover);
+                  const coverArtistNameRaw =
+                    isCoverEntry ? normalizeCoverArtistName(entry?.original_artist ?? null) : null;
+                  const coverArtistKey = coverArtistNameRaw
+                    ? canonicalizeCoverArtistKey(coverArtistNameRaw)
+                    : null;
+                  const artistMeta = coverArtistKey ? coverArtists[coverArtistKey] : undefined;
+                  const coverArtistResolved = artistMeta?.name ?? coverArtistNameRaw;
+                  const isUnknownCoverArtist =
+                    (coverArtistResolved ?? '').toLowerCase() === UNKNOWN_COVER_ARTIST_LABEL.toLowerCase();
+                  const coverArtistName = isUnknownCoverArtist ? null : coverArtistResolved;
+                  const coverArtistKeyResolved = isUnknownCoverArtist ? null : artistMeta?.key ?? coverArtistKey;
+                  const coverLabel = isCoverEntry ? 'Cover' : null;
                   return {
                     itemKey: item.key,
                     songName,
@@ -870,6 +1258,8 @@ const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores, songDetails })
                     weightLabel,
                     weightNormalized,
                     coverLabel,
+                    coverArtistName,
+                    coverArtistKey: coverArtistKeyResolved,
                     songKeyRef,
                     isSegueArrow
                   };
@@ -936,7 +1326,25 @@ const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores, songDetails })
                         </div>
                       </div>
                       <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                        {detail.coverLabel ? <span>{detail.coverLabel}</span> : null}
+                        {detail.coverArtistName ? (
+                          <span>
+                            {(detail.coverLabel ?? 'Cover')} of{' '}
+                            <Link
+                              to={buildCoverArtistPath(detail.coverArtistName)}
+                              onClick={(event) => event.stopPropagation()}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                  event.stopPropagation();
+                                }
+                              }}
+                              className="text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                            >
+                              {detail.coverArtistName}
+                            </Link>
+                          </span>
+                        ) : detail.coverLabel ? (
+                          <span>{detail.coverLabel}</span>
+                        ) : null}
                       </div>
                       {detail.footnote ? (
                         <p className="mt-2 text-xs text-muted-foreground">{detail.footnote}</p>
@@ -1006,7 +1414,7 @@ const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores, songDetails })
 
 export default App;
 
-const SongDetailPage: React.FC<SongDetailProps> = ({ dataset, songDetails, songAggregates, scores }) => {
+const SongDetailPage: React.FC<SongDetailProps> = ({ dataset, songDetails, songAggregates, scores, coverArtists }) => {
   const { songKey: encodedSongKey } = useParams<{ songKey: string }>();
   const songKeyValue = encodedSongKey ? decodeURIComponent(encodedSongKey) : null;
   const navigate = useNavigate();
@@ -1029,16 +1437,8 @@ const SongDetailPage: React.FC<SongDetailProps> = ({ dataset, songDetails, songA
   }, [scores]);
 
   const occurrences = useMemo(() => {
-    if (!dataset?.setlists || !songKeyValue) return [];
-    const items: Array<{
-      entry: any;
-      detail: SongRarityDetail;
-      show: any;
-      displayDate: string;
-      dateValue: number;
-      setLabel: string;
-      duration: string | null;
-    }> = [];
+    if (!dataset?.setlists || !songKeyValue) return [] as SongOccurrenceRow[];
+    const items: SongOccurrenceRow[] = [];
     dataset.setlists.forEach((entry, index) => {
       const entryKey = createSetlistEntryKey(entry, index);
       const detail = songDetails[entryKey];
@@ -1053,6 +1453,14 @@ const SongDetailPage: React.FC<SongDetailProps> = ({ dataset, songDetails, songA
             : null;
       const dateValue = parsed && !Number.isNaN(parsed.getTime()) ? parsed.getTime() : Number.NEGATIVE_INFINITY;
       const setMeta = getSetMeta(entry);
+      const venue = show ? decodeHtmlEntities(show.venuename ?? '') : '';
+      const location = show ? decodeHtmlEntities(show.location ?? '') : '';
+      const showLabel =
+        [venue, location]
+          .map((part) => (typeof part === 'string' ? part.trim() : ''))
+          .filter((part) => part.length > 0)
+          .join(' • ') || 'Unknown venue';
+      const prettyDuration = formatDuration(entry?.tracktime);
       items.push({
         entry,
         detail,
@@ -1060,7 +1468,9 @@ const SongDetailPage: React.FC<SongDetailProps> = ({ dataset, songDetails, songA
         displayDate: formatDateDisplay(dateRaw),
         dateValue,
         setLabel: setMeta.label,
-        duration: formatDuration(entry?.tracktime)
+        duration: prettyDuration,
+        durationSeconds: parseDurationToSeconds(prettyDuration),
+        showLabel
       });
     });
     items.sort((a, b) => {
@@ -1069,6 +1479,29 @@ const SongDetailPage: React.FC<SongDetailProps> = ({ dataset, songDetails, songA
     });
     return items;
   }, [dataset, showMap, songDetails, songKeyValue]);
+
+  const coverArtistEntries = useMemo(() => {
+    const entriesMap = new Map<string, string>();
+    occurrences.forEach((item) => {
+      if (!item.detail.isCover) return;
+      const artistName = normalizeCoverArtistName(item.entry?.original_artist ?? null);
+      if (artistName.toLowerCase() === UNKNOWN_COVER_ARTIST_LABEL.toLowerCase()) return;
+      const key = canonicalizeCoverArtistKey(artistName);
+      const artistDetail = coverArtists[key];
+      entriesMap.set(key, artistDetail?.name ?? artistName);
+    });
+    return Array.from(entriesMap.entries()).map(([key, name]) => ({ key, name }));
+  }, [occurrences, coverArtists]);
+
+  const [occurrenceSort, setOccurrenceSort] = useState<SongOccurrenceSortState>({
+    key: 'date',
+    direction: 'desc'
+  });
+
+  const sortedOccurrences = useMemo(
+    () => sortSongOccurrences(occurrences, occurrenceSort),
+    [occurrences, occurrenceSort]
+  );
 
   const aggregate = songKeyValue ? songAggregates[songKeyValue] : undefined;
 
@@ -1164,7 +1597,25 @@ const SongDetailPage: React.FC<SongDetailProps> = ({ dataset, songDetails, songA
             </div>
             <div>
               <p className="text-xs uppercase text-muted-foreground">Cover / Original</p>
-              <p className="font-medium">{coverLabel}</p>
+              <div className="space-y-1">
+                <p className="font-medium">{coverLabel}</p>
+                {coverArtistEntries.length > 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    Covered from{' '}
+                    {coverArtistEntries.map((artist, index) => (
+                      <React.Fragment key={artist.key}>
+                        {index > 0 ? ', ' : null}
+                        <Link
+                          to={`/covers/${encodeURIComponent(artist.key)}`}
+                          className="text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                        >
+                          {artist.name}
+                        </Link>
+                      </React.Fragment>
+                    ))}
+                  </p>
+                ) : null}
+              </div>
             </div>
           </div>
         </CardContent>
@@ -1178,31 +1629,121 @@ const SongDetailPage: React.FC<SongDetailProps> = ({ dataset, songDetails, songA
           {occurrences.length === 0 ? (
             <p className="text-sm text-muted-foreground">No performances recorded for this song.</p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto table-wrapper">
               <table className="min-w-full divide-y divide-border text-sm">
                 <thead className="bg-muted/50">
                   <tr>
-                    <th className="px-4 py-2 text-left font-medium">Date</th>
-                    <th className="px-4 py-2 text-left font-medium">Show</th>
-                    <th className="px-4 py-2 text-left font-medium">Set</th>
-                    <th className="px-4 py-2 text-right font-medium">Duration</th>
+                    <th
+                      className="px-4 py-2 text-left font-medium"
+                      aria-sort={occurrenceSort.key === 'date' ? `${occurrenceSort.direction}ending` : 'none'}
+                    >
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setOccurrenceSort((prev) =>
+                            prev.key === 'date'
+                              ? { key: 'date', direction: prev.direction === 'asc' ? 'desc' : 'asc' }
+                              : { key: 'date', direction: 'desc' }
+                          )
+                        }
+                        className="flex items-center gap-1"
+                      >
+                        <span>Date</span>
+                        <span aria-hidden="true" className="text-xs text-muted-foreground">
+                          {occurrenceSort.key === 'date'
+                            ? occurrenceSort.direction === 'asc'
+                              ? '▲'
+                              : '▼'
+                            : ''}
+                        </span>
+                      </button>
+                    </th>
+                    <th
+                      className="px-4 py-2 text-left font-medium"
+                      aria-sort={occurrenceSort.key === 'show' ? `${occurrenceSort.direction}ending` : 'none'}
+                    >
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setOccurrenceSort((prev) =>
+                            prev.key === 'show'
+                              ? { key: 'show', direction: prev.direction === 'asc' ? 'desc' : 'asc' }
+                              : { key: 'show', direction: 'asc' }
+                          )
+                        }
+                        className="flex items-center gap-1"
+                      >
+                        <span>Show</span>
+                        <span aria-hidden="true" className="text-xs text-muted-foreground">
+                          {occurrenceSort.key === 'show'
+                            ? occurrenceSort.direction === 'asc'
+                              ? '▲'
+                              : '▼'
+                            : ''}
+                        </span>
+                      </button>
+                    </th>
+                    <th
+                      className="px-4 py-2 text-left font-medium"
+                      aria-sort={occurrenceSort.key === 'set' ? `${occurrenceSort.direction}ending` : 'none'}
+                    >
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setOccurrenceSort((prev) =>
+                            prev.key === 'set'
+                              ? { key: 'set', direction: prev.direction === 'asc' ? 'desc' : 'asc' }
+                              : { key: 'set', direction: 'asc' }
+                          )
+                        }
+                        className="flex items-center gap-1"
+                      >
+                        <span>Set</span>
+                        <span aria-hidden="true" className="text-xs text-muted-foreground">
+                          {occurrenceSort.key === 'set'
+                            ? occurrenceSort.direction === 'asc'
+                              ? '▲'
+                              : '▼'
+                            : ''}
+                        </span>
+                      </button>
+                    </th>
+                    <th
+                      className="px-4 py-2 text-right font-medium"
+                      aria-sort={occurrenceSort.key === 'duration' ? `${occurrenceSort.direction}ending` : 'none'}
+                    >
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setOccurrenceSort((prev) =>
+                            prev.key === 'duration'
+                              ? { key: 'duration', direction: prev.direction === 'asc' ? 'desc' : 'asc' }
+                              : { key: 'duration', direction: 'desc' }
+                          )
+                        }
+                        className="flex w-full items-center justify-end gap-1"
+                      >
+                        <span>Duration</span>
+                        <span aria-hidden="true" className="text-xs text-muted-foreground">
+                          {occurrenceSort.key === 'duration'
+                            ? occurrenceSort.direction === 'asc'
+                              ? '▲'
+                              : '▼'
+                            : ''}
+                        </span>
+                      </button>
+                    </th>
                     <th className="px-4 py-2 text-left font-medium">Show Notes</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border bg-card">
-                  {occurrences.map((item) => {
+                  {sortedOccurrences.map((item) => {
                     const showId = item.entry?.show_id;
                     const score = showId != null ? scoreByShow.get(showId) : undefined;
-                    const show = item.show;
-                    const venue = show ? decodeHtmlEntities(show.venuename ?? '') : '';
-                    const location = show ? decodeHtmlEntities(show.location ?? '') : '';
                     const showNotes =
                       typeof item.entry?.shownotes === 'string' && item.entry.shownotes.trim().length > 0
                         ? item.entry.shownotes.trim()
                         : null;
-                    const showLabel =
-                      [venue, location].filter((part) => part && part.length > 0).join(' • ') ||
-                      'Unknown venue';
                     const handleRowClick = () => {
                       if (showId != null) navigate(`/shows/${showId}`);
                     };
@@ -1213,37 +1754,454 @@ const SongDetailPage: React.FC<SongDetailProps> = ({ dataset, songDetails, songA
                         navigate(`/shows/${showId}`);
                       }
                     };
-                    const rowClass =
-                      (showId != null
+                    const rowClass = `${
+                      showId != null
                         ? 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background '
-                        : '') + 'hover:bg-muted/50';
+                        : ''
+                    }table-row-virtual hover:bg-muted/50`;
                     return (
                       <tr
                         key={item.detail.key}
                         className={rowClass}
                         onClick={showId != null ? handleRowClick : undefined}
                         onKeyDown={handleRowKeyDown}
-                        role={showId != null ? 'button' : undefined}
-                        tabIndex={showId != null ? 0 : -1}
-                        aria-label={
-                          showId != null
-                            ? `Open show ${item.displayDate} at ${showLabel}`
-                            : undefined
-                        }
-                      >
-                        <td className="px-4 py-2 font-medium text-primary">{item.displayDate}</td>
-                        <td className="px-4 py-2 text-muted-foreground">
-                          {showLabel}
-                          {score ? (
-                            <span className={`ml-2 text-xs font-mono ${weightColorClass(score.normalizedScore)}`}>
-                              Rarity {formatNumber(score.rarityScore)}
-                            </span>
-                          ) : null}
+                      role={showId != null ? 'button' : undefined}
+                      tabIndex={showId != null ? 0 : -1}
+                      aria-label={
+                        showId != null
+                          ? `Open show ${item.displayDate} at ${item.showLabel}`
+                          : undefined
+                      }
+                    >
+                      <td className="px-4 py-2 font-medium text-primary">{item.displayDate}</td>
+                      <td className="px-4 py-2 text-muted-foreground">
+                        {item.showLabel}
+                        {score ? (
+                          <span className={`ml-2 text-xs font-mono ${weightColorClass(score.normalizedScore)}`}>
+                            Rarity {formatNumber(score.rarityScore)}
+                          </span>
+                        ) : null}
                         </td>
                         <td className="px-4 py-2">{item.setLabel}</td>
                         <td className="px-4 py-2 text-right">{item.duration ?? '—'}</td>
                         <td className="px-4 py-2 text-muted-foreground">
                           {showNotes ? <span>{showNotes}</span> : <span className="italic text-xs">—</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </>
+  );
+};
+
+const CoverArtistIndex: React.FC<CoverArtistIndexProps> = ({ artists }) => {
+  const navigate = useNavigate();
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sort, setSort] = useState<CoverArtistSortState>({ key: 'totalCovers', direction: 'desc' });
+
+  const filteredArtists = useMemo(() => {
+    const trimmed = searchTerm.trim();
+    if (trimmed.length === 0) return artists;
+    const query = trimmed.toLowerCase();
+    return artists.filter((artist) => artist.name.toLowerCase().includes(query));
+  }, [artists, searchTerm]);
+
+  const sortedArtists = useMemo(
+    () => sortCoverArtists(filteredArtists, sort),
+    [filteredArtists, sort]
+  );
+
+  const handleSort = useCallback((key: CoverArtistSortKey) => {
+    setSort((prev) => {
+      if (prev.key === key) {
+        return { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
+      }
+      if (key === 'name') {
+        return { key, direction: 'asc' };
+      }
+      return { key, direction: 'desc' };
+    });
+  }, []);
+
+  const renderSortHeader = (label: string, key: CoverArtistSortKey, align: 'left' | 'right' = 'left') => {
+    const isActive = sort.key === key;
+    const direction = isActive ? sort.direction : undefined;
+    const indicator = direction === 'asc' ? '▲' : direction === 'desc' ? '▼' : '';
+    return (
+      <button
+        type="button"
+        onClick={() => handleSort(key)}
+        className={`flex w-full items-center gap-1 text-sm font-medium ${
+          align === 'right' ? 'justify-end' : 'justify-start'
+        }`}
+      >
+        <span>{label}</span>
+        <span aria-hidden="true" className="text-xs text-muted-foreground">
+          {indicator}
+        </span>
+      </button>
+    );
+  };
+
+  if (artists.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Cover Artists</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            Load the cached dataset to explore covered artists. Use the “Load Local Dataset” button above.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Cover Artists</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Artists Goose has covered in the cached dataset. Select a row to drill into song appearances.
+        </p>
+        <div className="mt-4 w-full max-w-sm">
+          <Input
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="Search artists (e.g. Perpetual Groove)"
+            aria-label="Search cover artists"
+          />
+        </div>
+      </CardHeader>
+      <CardContent>
+        {sortedArtists.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No cover artists match “{searchTerm.trim()}”.
+          </p>
+        ) : (
+          <div className="overflow-x-auto table-wrapper">
+            <table className="min-w-full divide-y divide-border text-sm">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th
+                    className="px-4 py-2 text-left"
+                    aria-sort={sort.key === 'name' ? `${sort.direction}ending` : 'none'}
+                  >
+                    {renderSortHeader('Artist', 'name')}
+                  </th>
+                  <th
+                    className="px-4 py-2 text-left"
+                    aria-sort={sort.key === 'uniqueSongs' ? `${sort.direction}ending` : 'none'}
+                  >
+                    {renderSortHeader('Songs Covered', 'uniqueSongs')}
+                  </th>
+                  <th
+                    className="px-4 py-2 text-left"
+                    aria-sort={sort.key === 'uniqueShows' ? `${sort.direction}ending` : 'none'}
+                  >
+                    {renderSortHeader('Unique Shows', 'uniqueShows')}
+                  </th>
+                  <th
+                    className="px-4 py-2 text-left"
+                    aria-sort={sort.key === 'firstDate' ? `${sort.direction}ending` : 'none'}
+                  >
+                    {renderSortHeader('First Cover', 'firstDate')}
+                  </th>
+                  <th
+                    className="px-4 py-2 text-left"
+                    aria-sort={sort.key === 'lastDate' ? `${sort.direction}ending` : 'none'}
+                  >
+                    {renderSortHeader('Most Recent', 'lastDate')}
+                  </th>
+                  <th
+                    className="px-4 py-2 text-right"
+                    aria-sort={sort.key === 'totalCovers' ? `${sort.direction}ending` : 'none'}
+                  >
+                    {renderSortHeader('Total Covers', 'totalCovers', 'right')}
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border bg-card">
+              {sortedArtists.map((artist) => {
+                const path = `/covers/${encodeURIComponent(artist.key)}`;
+                  const handleRowClick = () => navigate(path);
+                  const handleRowKeyDown = (event: React.KeyboardEvent<HTMLTableRowElement>) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      navigate(path);
+                    }
+                  };
+                  return (
+                  <tr
+                    key={artist.key}
+                    className="table-row-virtual cursor-pointer hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                      onClick={handleRowClick}
+                      onKeyDown={handleRowKeyDown}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`View covers of ${artist.name}`}
+                    >
+                      <td className="px-4 py-2 font-medium text-primary">{artist.name}</td>
+                      <td className="px-4 py-2">{artist.uniqueSongs.toLocaleString()}</td>
+                      <td className="px-4 py-2">{artist.uniqueShows.toLocaleString()}</td>
+                      <td className="px-4 py-2">{formatDateDisplay(artist.firstDate ?? null)}</td>
+                      <td className="px-4 py-2">{formatDateDisplay(artist.lastDate ?? null)}</td>
+                      <td className="px-4 py-2 text-right font-mono">{artist.totalCovers.toLocaleString()}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
+const CoverArtistPage: React.FC<CoverArtistPageProps> = ({ artists }) => {
+  const { artistKey: encodedKey } = useParams<{ artistKey: string }>();
+  const navigate = useNavigate();
+  const canonicalKey = encodedKey ? decodeURIComponent(encodedKey).toLowerCase() : '';
+  const artist = canonicalKey ? artists[canonicalKey] : undefined;
+
+  if (!encodedKey) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Cover Artist</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            Select a cover artist from the list to view their covered songs.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!artist) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Cover Artist Not Found</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            We could not find that cover artist in the cached dataset. Return to the{' '}
+            <Link to="/covers" className="text-primary underline-offset-4 hover:underline">
+              cover artist list
+            </Link>{' '}
+            to pick another artist.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const [songSort, setSongSort] = useState<CoverArtistSongSortState>({
+    key: 'coverCount',
+    direction: 'desc'
+  });
+  const songs = useMemo(() => sortCoverArtistSongs(artist.songs, songSort), [artist, songSort]);
+  const toggleSongSort = useCallback((key: CoverArtistSongSortKey) => {
+    setSongSort((prev) => {
+      if (prev.key === key) {
+        return { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
+      }
+      if (key === 'name') {
+        return { key, direction: 'asc' };
+      }
+      return { key, direction: 'desc' };
+    });
+  }, []);
+
+  return (
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle>{artist.name} Covers</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Goose has performed these {artist.totalCovers.toLocaleString()} cover{artist.totalCovers === 1 ? '' : 's'} of {artist.name}.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div>
+              <p className="text-xs uppercase text-muted-foreground">Total Covers</p>
+              <p className="font-medium">{artist.totalCovers.toLocaleString()}</p>
+            </div>
+            <div>
+              <p className="text-xs uppercase text-muted-foreground">Unique Songs</p>
+              <p className="font-medium">{artist.uniqueSongs.toLocaleString()}</p>
+            </div>
+            <div>
+              <p className="text-xs uppercase text-muted-foreground">Unique Shows</p>
+              <p className="font-medium">{artist.uniqueShows.toLocaleString()}</p>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-4 sm:grid-cols-3">
+            <div>
+              <p className="text-xs uppercase text-muted-foreground">First Cover</p>
+              <p className="font-medium">{formatDateDisplay(artist.firstDate ?? null)}</p>
+            </div>
+            <div>
+              <p className="text-xs uppercase text-muted-foreground">Most Recent</p>
+              <p className="font-medium">{formatDateDisplay(artist.lastDate ?? null)}</p>
+            </div>
+            <div>
+              <Button variant="outline" onClick={() => navigate('/covers')}>
+                <ArrowLeft className="mr-2 h-4 w-4" /> All Cover Artists
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Covered Songs</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {songs.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No cover performances recorded in the dataset.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-border text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th
+                      className="px-4 py-2 text-left font-medium"
+                      aria-sort={songSort.key === 'name' ? `${songSort.direction}ending` : 'none'}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => toggleSongSort('name')}
+                        className="flex items-center gap-1"
+                      >
+                        <span>Song</span>
+                        <span aria-hidden="true" className="text-xs text-muted-foreground">
+                          {songSort.key === 'name' ? (songSort.direction === 'asc' ? '▲' : '▼') : ''}
+                        </span>
+                      </button>
+                    </th>
+                    <th
+                      className="px-4 py-2 text-left font-medium"
+                      aria-sort={songSort.key === 'coverCount' ? `${songSort.direction}ending` : 'none'}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => toggleSongSort('coverCount')}
+                        className="flex items-center gap-1"
+                      >
+                        <span>Covers Logged</span>
+                        <span aria-hidden="true" className="text-xs text-muted-foreground">
+                          {songSort.key === 'coverCount' ? (songSort.direction === 'asc' ? '▲' : '▼') : ''}
+                        </span>
+                      </button>
+                    </th>
+                    <th
+                      className="px-4 py-2 text-left font-medium"
+                      aria-sort={songSort.key === 'uniqueShows' ? `${songSort.direction}ending` : 'none'}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => toggleSongSort('uniqueShows')}
+                        className="flex items-center gap-1"
+                      >
+                        <span>Unique Shows</span>
+                        <span aria-hidden="true" className="text-xs text-muted-foreground">
+                          {songSort.key === 'uniqueShows' ? (songSort.direction === 'asc' ? '▲' : '▼') : ''}
+                        </span>
+                      </button>
+                    </th>
+                    <th
+                      className="px-4 py-2 text-left font-medium"
+                      aria-sort={songSort.key === 'firstDate' ? `${songSort.direction}ending` : 'none'}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => toggleSongSort('firstDate')}
+                        className="flex items-center gap-1"
+                      >
+                        <span>First Cover</span>
+                        <span aria-hidden="true" className="text-xs text-muted-foreground">
+                          {songSort.key === 'firstDate' ? (songSort.direction === 'asc' ? '▲' : '▼') : ''}
+                        </span>
+                      </button>
+                    </th>
+                    <th
+                      className="px-4 py-2 text-left font-medium"
+                      aria-sort={songSort.key === 'lastDate' ? `${songSort.direction}ending` : 'none'}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => toggleSongSort('lastDate')}
+                        className="flex items-center gap-1"
+                      >
+                        <span>Most Recent</span>
+                        <span aria-hidden="true" className="text-xs text-muted-foreground">
+                          {songSort.key === 'lastDate' ? (songSort.direction === 'asc' ? '▲' : '▼') : ''}
+                        </span>
+                      </button>
+                    </th>
+                    <th
+                      className="px-4 py-2 text-right font-medium"
+                      aria-sort={songSort.key === 'averageRarity' ? `${songSort.direction}ending` : 'none'}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => toggleSongSort('averageRarity')}
+                        className="flex w-full items-center justify-end gap-1"
+                      >
+                        <span>Rarity</span>
+                        <span aria-hidden="true" className="text-xs text-muted-foreground">
+                          {songSort.key === 'averageRarity' ? (songSort.direction === 'asc' ? '▲' : '▼') : ''}
+                        </span>
+                      </button>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border bg-card">
+                  {songs.map((song) => {
+                    const path = `/songs/${encodeURIComponent(song.songKey)}`;
+                    const handleRowClick = () => navigate(path);
+                    const handleRowKeyDown = (event: React.KeyboardEvent<HTMLTableRowElement>) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        navigate(path);
+                      }
+                    };
+                    return (
+                      <tr
+                        key={song.songKey}
+                        className="table-row-virtual cursor-pointer hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                        onClick={handleRowClick}
+                        onKeyDown={handleRowKeyDown}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`View performances of ${song.name}`}
+                      >
+                        <td className="px-4 py-2 font-medium text-primary">{song.name}</td>
+                        <td className="px-4 py-2">{song.coverCount.toLocaleString()}</td>
+                        <td className="px-4 py-2">{song.uniqueShows.toLocaleString()}</td>
+                        <td className="px-4 py-2">{formatDateDisplay(song.firstDate ?? null)}</td>
+                        <td className="px-4 py-2">{formatDateDisplay(song.lastDate ?? null)}</td>
+                        <td className="px-4 py-2 text-right">
+                          {song.averageRarity != null ? (
+                            <span className={`font-mono ${weightColorClass(song.averageRarity)}`}>
+                              {formatNumber(song.averageRarity)}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
                         </td>
                       </tr>
                     );

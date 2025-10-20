@@ -33,3 +33,12 @@ body {
 * {
   border-color: hsl(var(--border));
 }
+
+.table-wrapper {
+  contain: layout paint;
+}
+
+.table-row-virtual {
+  content-visibility: auto;
+  contain-intrinsic-size: 44px;
+}
