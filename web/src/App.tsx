@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { ArrowLeft, Loader2, RefreshCw, Trash2, Upload } from 'lucide-react';
 import { Link, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Button } from './components/ui/button';
@@ -319,6 +319,7 @@ interface DashboardProps {
   limitedScores: RarityScore[];
   averageScore: number;
   omittedCount: number;
+  filtersPending: boolean;
   onSelectShow: (showId: number) => void;
 }
 
@@ -416,9 +417,38 @@ const App: React.FC = () => {
   const [yearFilter, setYearFilter] = useState<YearOption>('all');
   const [venueFilter, setVenueFilter] = useState('');
   const [limit, setLimit] = useState(10);
+  const [filtersPending, startFilterTransition] = useTransition();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
+
+  const handleYearFilterChange = useCallback(
+    (value: YearOption) => {
+      startFilterTransition(() => {
+        setYearFilter(value);
+      });
+    },
+    [startFilterTransition]
+  );
+
+  const handleVenueFilterChange = useCallback(
+    (value: string) => {
+      startFilterTransition(() => {
+        setVenueFilter(value);
+      });
+    },
+    [startFilterTransition]
+  );
+
+  const handleLimitChange = useCallback(
+    (value: number) => {
+      const numeric = Number.isFinite(value) ? value : 1;
+      startFilterTransition(() => {
+        setLimit(Math.max(1, Math.floor(numeric)));
+      });
+    },
+    [startFilterTransition]
+  );
 
   useEffect(() => {
     async function hydrate() {
@@ -770,15 +800,16 @@ const App: React.FC = () => {
                 status={status}
                 years={years}
                 yearFilter={yearFilter}
-                onYearFilterChange={setYearFilter}
+                onYearFilterChange={handleYearFilterChange}
                 venueFilter={venueFilter}
-                onVenueFilterChange={setVenueFilter}
+                onVenueFilterChange={handleVenueFilterChange}
                 limit={limit}
-                onLimitChange={(value) => setLimit(Math.max(1, Math.floor(value)))}
+                onLimitChange={handleLimitChange}
                 filteredScores={filteredScores}
                 limitedScores={limitedScores}
                 averageScore={averageScore}
                 omittedCount={omittedCount}
+                filtersPending={filtersPending}
                 onSelectShow={(showId) => navigate(`/shows/${showId}`)}
               />
             }
@@ -854,6 +885,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   limitedScores,
   averageScore,
   omittedCount,
+  filtersPending,
   onSelectShow
 }) => {
   return (
@@ -915,6 +947,12 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <p>Shows: {filteredScores.length.toLocaleString()}</p>
                 <p>Average rarity: {formatNumber(averageScore)}</p>
                 {omittedCount > 0 ? <p>Omitted (no setlist): {omittedCount}</p> : null}
+                {filtersPending ? (
+                  <p className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Updating filters…
+                  </p>
+                ) : null}
               </div>
             </div>
           </div>
@@ -949,7 +987,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                     <th className="px-4 py-2 text-right font-medium">Songs</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border bg-card">
+                <tbody className="divide-y divide-border bg-card" aria-busy={filtersPending}>
                   {limitedScores.map((score, index) => (
                     <tr
                       key={score.showId}
@@ -1497,6 +1535,21 @@ const SongDetailPage: React.FC<SongDetailProps> = ({ dataset, songDetails, songA
     key: 'date',
     direction: 'desc'
   });
+  const [occurrencePending, startOccurrenceTransition] = useTransition();
+
+  const updateOccurrenceSort = useCallback(
+    (key: SongOccurrenceSortKey, defaultDirection: SortDirection) => {
+      startOccurrenceTransition(() => {
+        setOccurrenceSort((prev) => {
+          if (prev.key === key) {
+            return { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
+          }
+          return { key, direction: defaultDirection };
+        });
+      });
+    },
+    [startOccurrenceTransition]
+  );
 
   const sortedOccurrences = useMemo(
     () => sortSongOccurrences(occurrences, occurrenceSort),
@@ -1639,13 +1692,7 @@ const SongDetailPage: React.FC<SongDetailProps> = ({ dataset, songDetails, songA
                     >
                       <button
                         type="button"
-                        onClick={() =>
-                          setOccurrenceSort((prev) =>
-                            prev.key === 'date'
-                              ? { key: 'date', direction: prev.direction === 'asc' ? 'desc' : 'asc' }
-                              : { key: 'date', direction: 'desc' }
-                          )
-                        }
+                        onClick={() => updateOccurrenceSort('date', 'desc')}
                         className="flex items-center gap-1"
                       >
                         <span>Date</span>
@@ -1664,13 +1711,7 @@ const SongDetailPage: React.FC<SongDetailProps> = ({ dataset, songDetails, songA
                     >
                       <button
                         type="button"
-                        onClick={() =>
-                          setOccurrenceSort((prev) =>
-                            prev.key === 'show'
-                              ? { key: 'show', direction: prev.direction === 'asc' ? 'desc' : 'asc' }
-                              : { key: 'show', direction: 'asc' }
-                          )
-                        }
+                        onClick={() => updateOccurrenceSort('show', 'asc')}
                         className="flex items-center gap-1"
                       >
                         <span>Show</span>
@@ -1689,13 +1730,7 @@ const SongDetailPage: React.FC<SongDetailProps> = ({ dataset, songDetails, songA
                     >
                       <button
                         type="button"
-                        onClick={() =>
-                          setOccurrenceSort((prev) =>
-                            prev.key === 'set'
-                              ? { key: 'set', direction: prev.direction === 'asc' ? 'desc' : 'asc' }
-                              : { key: 'set', direction: 'asc' }
-                          )
-                        }
+                        onClick={() => updateOccurrenceSort('set', 'asc')}
                         className="flex items-center gap-1"
                       >
                         <span>Set</span>
@@ -1714,13 +1749,7 @@ const SongDetailPage: React.FC<SongDetailProps> = ({ dataset, songDetails, songA
                     >
                       <button
                         type="button"
-                        onClick={() =>
-                          setOccurrenceSort((prev) =>
-                            prev.key === 'duration'
-                              ? { key: 'duration', direction: prev.direction === 'asc' ? 'desc' : 'asc' }
-                              : { key: 'duration', direction: 'desc' }
-                          )
-                        }
+                        onClick={() => updateOccurrenceSort('duration', 'desc')}
                         className="flex w-full items-center justify-end gap-1"
                       >
                         <span>Duration</span>
@@ -1736,7 +1765,7 @@ const SongDetailPage: React.FC<SongDetailProps> = ({ dataset, songDetails, songA
                     <th className="px-4 py-2 text-left font-medium">Show Notes</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border bg-card">
+                <tbody className="divide-y divide-border bg-card" aria-busy={occurrencePending}>
                   {sortedOccurrences.map((item) => {
                     const showId = item.entry?.show_id;
                     const score = showId != null ? scoreByShow.get(showId) : undefined;
@@ -1804,6 +1833,7 @@ const CoverArtistIndex: React.FC<CoverArtistIndexProps> = ({ artists }) => {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [sort, setSort] = useState<CoverArtistSortState>({ key: 'totalCovers', direction: 'desc' });
+  const [isPending, startTransition] = useTransition();
 
   const filteredArtists = useMemo(() => {
     const trimmed = searchTerm.trim();
@@ -1817,17 +1847,31 @@ const CoverArtistIndex: React.FC<CoverArtistIndexProps> = ({ artists }) => {
     [filteredArtists, sort]
   );
 
-  const handleSort = useCallback((key: CoverArtistSortKey) => {
-    setSort((prev) => {
-      if (prev.key === key) {
-        return { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
-      }
-      if (key === 'name') {
-        return { key, direction: 'asc' };
-      }
-      return { key, direction: 'desc' };
-    });
-  }, []);
+  const handleSearchChange = useCallback(
+    (value: string) => {
+      startTransition(() => {
+        setSearchTerm(value);
+      });
+    },
+    [startTransition]
+  );
+
+  const handleSort = useCallback(
+    (key: CoverArtistSortKey) => {
+      startTransition(() => {
+        setSort((prev) => {
+          if (prev.key === key) {
+            return { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
+          }
+          if (key === 'name') {
+            return { key, direction: 'asc' };
+          }
+          return { key, direction: 'desc' };
+        });
+      });
+    },
+    [startTransition]
+  );
 
   const renderSortHeader = (label: string, key: CoverArtistSortKey, align: 'left' | 'right' = 'left') => {
     const isActive = sort.key === key;
@@ -1874,7 +1918,7 @@ const CoverArtistIndex: React.FC<CoverArtistIndexProps> = ({ artists }) => {
         <div className="mt-4 w-full max-w-sm">
           <Input
             value={searchTerm}
-            onChange={(event) => setSearchTerm(event.target.value)}
+            onChange={(event) => handleSearchChange(event.target.value)}
             placeholder="Search artists (e.g. Perpetual Groove)"
             aria-label="Search cover artists"
           />
@@ -1972,6 +2016,31 @@ const CoverArtistPage: React.FC<CoverArtistPageProps> = ({ artists }) => {
   const canonicalKey = encodedKey ? decodeURIComponent(encodedKey).toLowerCase() : '';
   const artist = canonicalKey ? artists[canonicalKey] : undefined;
 
+  const [songSort, setSongSort] = useState<CoverArtistSongSortState>({
+    key: 'coverCount',
+    direction: 'desc'
+  });
+  const [songPending, startSongTransition] = useTransition();
+  const songs = useMemo(() => {
+    if (!artist) {
+      return [];
+    }
+    return sortCoverArtistSongs(artist.songs, songSort);
+  }, [artist, songSort]);
+  const toggleSongSort = useCallback(
+    (key: CoverArtistSongSortKey, defaultDirection: SortDirection) => {
+      startSongTransition(() => {
+        setSongSort((prev) => {
+          if (prev.key === key) {
+            return { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
+          }
+          return { key, direction: defaultDirection };
+        });
+      });
+    },
+    [startSongTransition]
+  );
+
   if (!encodedKey) {
     return (
       <Card>
@@ -2005,23 +2074,6 @@ const CoverArtistPage: React.FC<CoverArtistPageProps> = ({ artists }) => {
       </Card>
     );
   }
-
-  const [songSort, setSongSort] = useState<CoverArtistSongSortState>({
-    key: 'coverCount',
-    direction: 'desc'
-  });
-  const songs = useMemo(() => sortCoverArtistSongs(artist.songs, songSort), [artist, songSort]);
-  const toggleSongSort = useCallback((key: CoverArtistSongSortKey) => {
-    setSongSort((prev) => {
-      if (prev.key === key) {
-        return { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
-      }
-      if (key === 'name') {
-        return { key, direction: 'asc' };
-      }
-      return { key, direction: 'desc' };
-    });
-  }, []);
 
   return (
     <>
@@ -2073,9 +2125,9 @@ const CoverArtistPage: React.FC<CoverArtistPageProps> = ({ artists }) => {
           {songs.length === 0 ? (
             <p className="text-sm text-muted-foreground">No cover performances recorded in the dataset.</p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-border text-sm">
-                <thead className="bg-muted/50">
+          <div className="overflow-x-auto table-wrapper">
+            <table className="min-w-full divide-y divide-border text-sm">
+              <thead className="bg-muted/50">
                   <tr>
                     <th
                       className="px-4 py-2 text-left font-medium"
@@ -2083,7 +2135,7 @@ const CoverArtistPage: React.FC<CoverArtistPageProps> = ({ artists }) => {
                     >
                       <button
                         type="button"
-                        onClick={() => toggleSongSort('name')}
+                        onClick={() => toggleSongSort('name', 'asc')}
                         className="flex items-center gap-1"
                       >
                         <span>Song</span>
@@ -2098,7 +2150,7 @@ const CoverArtistPage: React.FC<CoverArtistPageProps> = ({ artists }) => {
                     >
                       <button
                         type="button"
-                        onClick={() => toggleSongSort('coverCount')}
+                        onClick={() => toggleSongSort('coverCount', 'desc')}
                         className="flex items-center gap-1"
                       >
                         <span>Covers Logged</span>
@@ -2113,7 +2165,7 @@ const CoverArtistPage: React.FC<CoverArtistPageProps> = ({ artists }) => {
                     >
                       <button
                         type="button"
-                        onClick={() => toggleSongSort('uniqueShows')}
+                        onClick={() => toggleSongSort('uniqueShows', 'desc')}
                         className="flex items-center gap-1"
                       >
                         <span>Unique Shows</span>
@@ -2128,7 +2180,7 @@ const CoverArtistPage: React.FC<CoverArtistPageProps> = ({ artists }) => {
                     >
                       <button
                         type="button"
-                        onClick={() => toggleSongSort('firstDate')}
+                        onClick={() => toggleSongSort('firstDate', 'desc')}
                         className="flex items-center gap-1"
                       >
                         <span>First Cover</span>
@@ -2143,7 +2195,7 @@ const CoverArtistPage: React.FC<CoverArtistPageProps> = ({ artists }) => {
                     >
                       <button
                         type="button"
-                        onClick={() => toggleSongSort('lastDate')}
+                        onClick={() => toggleSongSort('lastDate', 'desc')}
                         className="flex items-center gap-1"
                       >
                         <span>Most Recent</span>
@@ -2158,7 +2210,7 @@ const CoverArtistPage: React.FC<CoverArtistPageProps> = ({ artists }) => {
                     >
                       <button
                         type="button"
-                        onClick={() => toggleSongSort('averageRarity')}
+                        onClick={() => toggleSongSort('averageRarity', 'desc')}
                         className="flex w-full items-center justify-end gap-1"
                       >
                         <span>Rarity</span>
@@ -2169,7 +2221,7 @@ const CoverArtistPage: React.FC<CoverArtistPageProps> = ({ artists }) => {
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border bg-card">
+              <tbody className="divide-y divide-border bg-card" aria-busy={songPending}>
                   {songs.map((song) => {
                     const path = `/songs/${encodeURIComponent(song.songKey)}`;
                     const handleRowClick = () => navigate(path);
