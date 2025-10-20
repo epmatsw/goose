@@ -47,7 +47,8 @@ The tool always prints the rarest shows (default top 10) to the console and writ
 For every song in the setlist archive we count how many times it appears globally. Each song instance in a show contributes a rarity value:
 
 ```
-rarity = min(1 / plays, 1 / 3) * (1 - 0.5 * isCover)
+playsPct = 100 * (showsFeaturingSong / showsSinceFirstPerformance)
+rarity = min(1 / playsPct, 1 / 3) * (1 - 0.5 * isCover)
 ```
 
-where `plays` is the global count for that song and `isCover` equals 1 when the song is marked as a cover. A show’s rarity score is the sum of the rarity contributions for all songs performed in that show.
+`showsSinceFirstPerformance` considers only shows that happened after the song debuted (inclusive). A show’s rarity score is the sum of the rarity contributions for all songs performed in that show.
