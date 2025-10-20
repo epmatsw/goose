@@ -51,4 +51,4 @@ playsPct = 100 * (showsFeaturingSong / showsSinceFirstPerformance)
 rarity = min(1 / playsPct, 1 / 3) * (1 - 0.5 * isCover)
 ```
 
-`showsSinceFirstPerformance` considers only shows that happened after the song debuted (inclusive). A show’s rarity score is the sum of the rarity contributions for all songs performed in that show.
+`showsSinceFirstPerformance` considers only shows that happened after the song debuted (inclusive). Songs that first appeared in 2020 or later receive a small bonus (≈0.1 for originals, ≈0.05 for covers) before rarities are rescaled, and final show scores average song rarities with a mild length multiplier so longer setlists don’t dominate. A show’s rarity score is the sum of these adjusted song contributions.

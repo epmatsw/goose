@@ -25,6 +25,9 @@ const MIN_NORMALIZED_RARITY = 0.05;
 const MAX_NORMALIZED_RARITY = 1.0;
 const MIN_SHOW_SCORE = 0.001;
 const LENGTH_ATTENUATION = 0.1;
+const FTP_BONUS_ORIGINAL = 0.1;
+const FTP_BONUS_COVER = 0.05;
+const FTP_YEAR_THRESHOLD = new Date('2020-01-01T00:00:00Z');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -307,12 +310,16 @@ function computeRarityScores(dataset) {
     return remaining;
   }
 
+  const firstDateBySong = new Map();
   for (const [key, stats] of songStats.entries()) {
     const plays = Math.max(stats.showIds.size, 1);
     const denominator = Math.max(showsSince(stats.firstDate), plays);
     const percentage = denominator > 0 ? plays / denominator : 1;
     const percentageMetric = Math.max(percentage * 100, Number.EPSILON);
     frequencyBySong.set(key, percentageMetric);
+    if (stats.firstDate) {
+      firstDateBySong.set(key, stats.firstDate);
+    }
   }
 
   const rawRarities = setlists.map((entry) => {
@@ -321,9 +328,13 @@ function computeRarityScores(dataset) {
     const base = Math.min(1 / frequencyMetric, 1 / F_CAP);
     const coverFactor = 1 - W_C * (isCover(entry) ? 1 : 0);
     const raw = W_F * base * Math.max(coverFactor, 0);
+    const firstDate = firstDateBySong.get(key);
+    const ftpBonus = firstDate && firstDate >= FTP_YEAR_THRESHOLD
+      ? (isCover(entry) ? FTP_BONUS_COVER : FTP_BONUS_ORIGINAL)
+      : 0;
     return {
       showId: entry?.show_id,
-      raw
+      raw: raw + ftpBonus
     };
   });
 
