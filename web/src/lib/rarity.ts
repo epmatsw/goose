@@ -57,6 +57,7 @@ export interface SongRarityDetail {
   percentage: number;
   isCover: boolean;
   firstDate?: string;
+  firstAppearance?: string;
 }
 
 export interface SongAggregate {
@@ -81,6 +82,7 @@ const LENGTH_ATTENUATION = 0.1;
 const FTP_BONUS_ORIGINAL = 0.1;
 const FTP_BONUS_COVER = 0.05;
 const FTP_YEAR_THRESHOLD = new Date('2020-01-01T00:00:00Z');
+const FIRST_PLAY_CUTOFF = new Date('2015-01-01T00:00:00Z');
 
 function decodeHtmlEntities(value: string | null | undefined): string {
   if (!value) return '';
@@ -230,7 +232,10 @@ export function computeRarityScores(dataset: Dataset): ComputeResult {
   showsWithSetlistDates.sort((a, b) => a - b);
   const totalEligibleShows = showsWithSetlistDates.length;
 
-  const songStats = new Map<string, { showIds: Set<number>; firstDate?: Date }>();
+  const songStats = new Map<
+    string,
+    { showIds: Set<number>; firstEligibleDate?: Date; firstAppearance?: Date }
+  >();
   const songMeta = new Map<string, { name: string | null; slug: string | null; songId: number | null; coverCount: number; originalCount: number }>();
   for (const entry of setlists) {
     const key = songKey(entry);
@@ -270,23 +275,36 @@ export function computeRarityScores(dataset: Dataset): ComputeResult {
     const entryDate =
       parseShowDate(entry?.showdate ?? undefined) ??
       (entry?.show_id != null ? showDateMap.get(entry.show_id) : undefined);
-    if (entryDate && (!stats.firstDate || entryDate < stats.firstDate)) {
-      stats.firstDate = entryDate;
+    if (entryDate) {
+      if (!stats.firstAppearance || entryDate < stats.firstAppearance) {
+        stats.firstAppearance = entryDate;
+      }
+      if (entryDate >= FIRST_PLAY_CUTOFF && (!stats.firstEligibleDate || entryDate < stats.firstEligibleDate)) {
+        stats.firstEligibleDate = entryDate;
+      }
     }
   }
 
   const frequencyBySong = new Map<string, number>();
   const firstDateBySong = new Map<string, Date>();
+  const firstAppearanceBySong = new Map<string, Date>();
   const usageBySong = new Map<string, { plays: number; percentage: number; firstDate?: Date }>();
 
   for (const [key, stats] of songStats.entries()) {
     const plays = Math.max(stats.showIds.size, 1);
-    const denominator = Math.max(showsSince(stats.firstDate, showsWithSetlistDates, totalEligibleShows), plays);
+    const denominator = Math.max(
+      showsSince(stats.firstEligibleDate, showsWithSetlistDates, totalEligibleShows),
+      plays
+    );
     const percentage = denominator > 0 ? plays / denominator : 1;
     const percentageMetric = Math.max(percentage * 100, Number.EPSILON);
     frequencyBySong.set(key, percentageMetric);
-    if (stats.firstDate) firstDateBySong.set(key, stats.firstDate);
-    usageBySong.set(key, { plays, percentage, firstDate: stats.firstDate });
+    const displayFirstDate = stats.firstEligibleDate ?? stats.firstAppearance;
+    if (displayFirstDate) firstDateBySong.set(key, displayFirstDate);
+    if (stats.firstAppearance) {
+      firstAppearanceBySong.set(key, stats.firstAppearance);
+    }
+    usageBySong.set(key, { plays, percentage, firstDate: displayFirstDate });
   }
 
   const rawRarities = setlists.map((entry, index) => {
@@ -296,10 +314,11 @@ export function computeRarityScores(dataset: Dataset): ComputeResult {
     const base = Math.min(1 / frequencyMetric, 1 / F_CAP);
     const coverFactor = 1 - W_C * (isCoverEntry ? 1 : 0);
     const raw = W_F * base * Math.max(coverFactor, 0);
-    const firstDate = firstDateBySong.get(key);
-    const ftpBonus = firstDate && firstDate >= FTP_YEAR_THRESHOLD
-      ? (isCoverEntry ? FTP_BONUS_COVER : FTP_BONUS_ORIGINAL)
-      : 0;
+    const ftpSourceDate = firstAppearanceBySong.get(key);
+    const ftpBonus =
+      ftpSourceDate && ftpSourceDate >= FTP_YEAR_THRESHOLD
+        ? (isCoverEntry ? FTP_BONUS_COVER : FTP_BONUS_ORIGINAL)
+        : 0;
     const entryKey = createSetlistEntryKey(entry, index);
     return {
       showId: entry?.show_id ?? undefined,
@@ -326,6 +345,7 @@ export function computeRarityScores(dataset: Dataset): ComputeResult {
       totalsByShow.set(item.showId, (totalsByShow.get(item.showId) ?? 0) + normalized);
     }
     const usage = usageBySong.get(item.songKey);
+    const firstAppearanceDate = firstAppearanceBySong.get(item.songKey);
     songDetails[item.entryKey] = {
       key: item.entryKey,
       songKey: item.songKey,
@@ -335,7 +355,8 @@ export function computeRarityScores(dataset: Dataset): ComputeResult {
       plays: usage?.plays ?? 0,
       percentage: usage?.percentage ?? 0,
       isCover: item.isCover,
-      firstDate: usage?.firstDate ? usage.firstDate.toISOString() : undefined
+      firstDate: usage?.firstDate ? usage.firstDate.toISOString() : undefined,
+      firstAppearance: firstAppearanceDate ? firstAppearanceDate.toISOString() : undefined
     };
   }
 

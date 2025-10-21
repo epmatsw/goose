@@ -41,7 +41,8 @@ function localDatasetPlugin(): Plugin {
   };
 }
 
-function inlineBuildAssetsPlugin(): Plugin {
+function inlineBuildAssetsPlugin(basePath: string): Plugin {
+  const normalizedBase = basePath.endsWith('/') ? basePath : `${basePath}/`;
   return {
     name: 'inline-build-assets',
     apply: 'build',
@@ -58,7 +59,16 @@ function inlineBuildAssetsPlugin(): Plugin {
         return;
       }
 
-      const toAssetPath = (outDirPath: string, reference: string) => {
+      const normalizeReference = (reference: string) => {
+        if (normalizedBase !== '/' && reference.startsWith(normalizedBase)) {
+          const stripped = reference.slice(normalizedBase.length);
+          return stripped.startsWith('/') ? stripped : `/${stripped}`;
+        }
+        return reference;
+      };
+
+      const toAssetPath = (outDirPath: string, rawReference: string) => {
+        const reference = normalizeReference(rawReference);
         if (/^https?:\/\//.test(reference)) {
           return null;
         }
@@ -135,20 +145,25 @@ function inlineBuildAssetsPlugin(): Plugin {
   };
 }
 
-export default defineConfig({
-  base: './',
-  plugins: [react(), localDatasetPlugin(), inlineBuildAssetsPlugin()],
-  server: {
-    port: 5173,
-    open: false
-  },
-  build: {
-    outDir: path.resolve(__dirname, '..', 'docs'),
-    emptyOutDir: true,
-    rollupOptions: {
-      output: {
-        manualChunks: undefined
+export default defineConfig(({ command }) => {
+  const isBuild = command === 'build';
+  const basePath = isBuild ? '/goose/' : '/';
+
+  return {
+    base: basePath,
+    plugins: [react(), localDatasetPlugin(), inlineBuildAssetsPlugin(basePath)],
+    server: {
+      port: 5173,
+      open: false
+    },
+    build: {
+      outDir: path.resolve(__dirname, '..', 'docs'),
+      emptyOutDir: true,
+      rollupOptions: {
+        output: {
+          manualChunks: undefined
+        }
       }
     }
-  }
+  };
 });

@@ -19,10 +19,11 @@ import {
 type Status = 'idle' | 'loading' | 'ready' | 'error';
 type YearOption = 'all' | number;
 
-const LOCAL_DATASET_URL = '/data/elgoose_setlists.json';
+const LOCAL_DATASET_URL = `${import.meta.env.BASE_URL}data/elgoose_setlists.json`;
 
-function formatNumber(value: number, decimals = 3) {
-  return value.toLocaleString(undefined, {
+function formatRarity(value: number, decimals = 0) {
+  const scaled = value * 100;
+  return scaled.toLocaleString(undefined, {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals
   });
@@ -90,6 +91,24 @@ function formatDuration(value?: string | null): string | null {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
+function parseUtcDate(value: string | null | undefined): Date | null {
+  if (value === undefined || value === null) return null;
+  const trimmed = String(value).trim();
+  if (trimmed.length === 0) return null;
+  const normalized = trimmed.includes('T') ? trimmed : `${trimmed}T00:00:00Z`;
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function isSameUtcDay(a: Date | null, b: Date | null): boolean {
+  if (!a || !b) return false;
+  return (
+    a.getUTCFullYear() === b.getUTCFullYear() &&
+    a.getUTCMonth() === b.getUTCMonth() &&
+    a.getUTCDate() === b.getUTCDate()
+  );
 }
 
 function weightColorClass(value: number | null): string {
@@ -180,6 +199,50 @@ function sortCoverArtistSongs(items: CoverArtistSongSummary[], sort: CoverArtist
         result = aValue - bValue;
         break;
       }
+    }
+
+    if (!Number.isFinite(result) || result === 0) {
+      result = localeCollator.compare(a.name, b.name);
+    }
+
+    return sort.direction === 'asc' ? result : -result;
+  };
+
+  return [...items].sort(comparator);
+}
+
+function sortSongs(items: SongSummary[], sort: SongSortState): SongSummary[] {
+  const getNumeric = (value: number | undefined | null) => (value == null ? Number.NaN : Number(value));
+  const getDateValue = (value: string | undefined) => {
+    if (!value) return Number.NaN;
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? Number.NaN : parsed.getTime();
+  };
+
+  const comparator = (a: SongSummary, b: SongSummary) => {
+    let result = 0;
+    switch (sort.key) {
+      case 'name':
+        result = localeCollator.compare(a.name, b.name);
+        break;
+      case 'averageRarity':
+        result = getNumeric(a.averageRarity) - getNumeric(b.averageRarity);
+        break;
+      case 'uniqueShows':
+        result = getNumeric(a.uniqueShows) - getNumeric(b.uniqueShows);
+        break;
+      case 'percentage':
+        result = getNumeric(a.percentage) - getNumeric(b.percentage);
+        break;
+      case 'firstDate':
+        result = getDateValue(a.firstDate) - getDateValue(b.firstDate);
+        break;
+      case 'lastDate':
+        result = getDateValue(a.lastDate) - getDateValue(b.lastDate);
+        break;
+      default:
+        result = 0;
+        break;
     }
 
     if (!Number.isFinite(result) || result === 0) {
@@ -402,6 +465,7 @@ type EntryDetail = {
   coverArtistKey: string | null;
   songKeyRef?: string;
   isSegueArrow: boolean;
+  isFirstTime: boolean;
 };
 
 interface CoverArtistSongSummary {
@@ -423,6 +487,30 @@ interface CoverArtistDetail {
   firstDate?: string;
   lastDate?: string;
   songs: CoverArtistSongSummary[];
+}
+
+interface SongSummary {
+  songKey: string;
+  name: string;
+  slug: string | null;
+  songId: number | null;
+  averageRarity: number | null;
+  uniqueShows: number;
+  percentage: number;
+  firstDate?: string;
+  lastDate?: string;
+  coverArtists: Array<{ key: string; name: string }>;
+}
+
+interface SongIndexProps {
+  songs: SongSummary[];
+}
+
+type SongSortKey = 'name' | 'averageRarity' | 'uniqueShows' | 'percentage' | 'firstDate' | 'lastDate';
+
+interface SongSortState {
+  key: SongSortKey;
+  direction: SortDirection;
 }
 
 type CoverArtistMap = Record<string, CoverArtistDetail>;
@@ -460,9 +548,12 @@ const App: React.FC = () => {
 
   const handleLimitChange = useCallback(
     (value: number) => {
-      const numeric = Number.isFinite(value) ? value : 1;
+      const numeric = Number.isFinite(value) ? value : 10;
+      const step = 10;
       startFilterTransition(() => {
-        setLimit(Math.max(1, Math.floor(numeric)));
+        const rounded = Math.round(numeric / step) * step;
+        const adjusted = Math.max(step, rounded || step);
+        setLimit(adjusted);
       });
     },
     [startFilterTransition]
@@ -662,6 +753,101 @@ const App: React.FC = () => {
 
     return { coverArtistsList: coverArtists, coverArtistMap: map };
   }, [dataset, songDetails, songAggregates]);
+
+  const songSummaries = useMemo(() => {
+    if (!dataset) return [] as SongSummary[];
+    const shows = dataset.shows ?? [];
+    const setlists = dataset.setlists ?? [];
+    if (setlists.length === 0) return [] as SongSummary[];
+
+    const showDateMap = new Map<number, Date>();
+    for (const show of shows) {
+      if (show?.show_id == null) continue;
+      const date = parseDate(show.showdate ?? null);
+      if (date) {
+        showDateMap.set(show.show_id, date);
+      }
+    }
+
+    const rarityTotals = new Map<string, { total: number; count: number }>();
+    const lastDateBySong = new Map<string, number>();
+    const coverArtistsBySong = new Map<string, Map<string, string>>();
+
+    setlists.forEach((entry, index) => {
+      const entryKey = createSetlistEntryKey(entry, index);
+      const detail = songDetails[entryKey];
+      if (!detail) return;
+      const songKey = detail.songKey;
+      if (!songKey) return;
+
+      const totals = rarityTotals.get(songKey) ?? { total: 0, count: 0 };
+      totals.total += detail.normalized;
+      totals.count += 1;
+      rarityTotals.set(songKey, totals);
+
+      const entryDate =
+        parseDate(entry?.showdate ?? null) ??
+        (entry?.show_id != null ? showDateMap.get(Number(entry.show_id)) : undefined);
+      if (entryDate) {
+        const time = entryDate.getTime();
+        const existing = lastDateBySong.get(songKey);
+        if (existing == null || time > existing) {
+          lastDateBySong.set(songKey, time);
+        }
+      }
+
+      if (detail.isCover) {
+        const artistName = normalizeCoverArtistName(entry?.original_artist ?? null);
+        if (artistName.toLowerCase() !== UNKNOWN_COVER_ARTIST_LABEL.toLowerCase()) {
+          const artistKey = canonicalizeCoverArtistKey(artistName);
+          let artistSet = coverArtistsBySong.get(songKey);
+          if (!artistSet) {
+            artistSet = new Map<string, string>();
+            coverArtistsBySong.set(songKey, artistSet);
+          }
+          if (!artistSet.has(artistKey)) {
+            const mappedName = coverArtistMap[artistKey]?.name ?? artistName;
+            artistSet.set(artistKey, mappedName);
+          }
+        }
+      }
+    });
+
+    const summaries: SongSummary[] = [];
+    for (const [songKey, aggregate] of Object.entries(songAggregates)) {
+      const rarity = rarityTotals.get(songKey);
+      const averageRarity = rarity && rarity.count > 0 ? rarity.total / rarity.count : null;
+      const lastDateTime = lastDateBySong.get(songKey);
+      const coverArtistEntries = coverArtistsBySong.get(songKey);
+      const coverArtists = coverArtistEntries
+        ? Array.from(coverArtistEntries.entries())
+            .map(([key, name]) => ({ key, name }))
+            .sort((a, b) => localeCollator.compare(a.name, b.name))
+        : [];
+
+      summaries.push({
+        songKey,
+        name: aggregate.name ?? 'Unknown Song',
+        slug: aggregate.slug ?? null,
+        songId: aggregate.songId ?? null,
+        averageRarity,
+        uniqueShows: aggregate.plays ?? 0,
+        percentage: aggregate.percentage ?? 0,
+        firstDate: aggregate.firstDate,
+        lastDate: lastDateTime ? new Date(lastDateTime).toISOString() : undefined,
+        coverArtists
+      });
+    }
+
+    summaries.sort((a, b) => {
+      const left = a.averageRarity ?? 0;
+      const right = b.averageRarity ?? 0;
+      if (right !== left) return right - left;
+      return a.name.localeCompare(b.name);
+    });
+
+    return summaries;
+  }, [dataset, songAggregates, songDetails, coverArtistMap]);
 
   const filteredScores = useMemo(() => {
     let working = scores;
@@ -885,6 +1071,7 @@ const App: React.FC = () => {
             path="/covers/:artistKey"
             element={<CoverArtistPage artists={coverArtistMap} />}
           />
+          <Route path="/songs" element={<SongIndex songs={songSummaries} />} />
           <Route
             path="/shows/:showId"
             element={
@@ -1008,7 +1195,8 @@ const Dashboard: React.FC<DashboardProps> = ({
               <Input
                 id="dashboard-limit-input"
                 type="number"
-                min={1}
+                min={10}
+                step={10}
                 value={limit}
                 onChange={(event) => onLimitChange(Number(event.target.value))}
               />
@@ -1017,14 +1205,8 @@ const Dashboard: React.FC<DashboardProps> = ({
               <label className="block text-sm font-medium">Active Filters</label>
               <div className="rounded-md border bg-muted/50 p-3 text-sm">
                 <p>Shows: {filteredScores.length.toLocaleString()}</p>
-                <p>Average rarity: {formatNumber(averageScore)}</p>
+                <p>Average rarity: {formatRarity(averageScore)}</p>
                 {omittedCount > 0 ? <p>Omitted (no setlist): {omittedCount}</p> : null}
-                {filtersPending ? (
-                  <p className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Updating filters…
-                  </p>
-                ) : null}
               </div>
             </div>
           </div>
@@ -1034,6 +1216,15 @@ const Dashboard: React.FC<DashboardProps> = ({
               className="text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
               Browse &amp; search cover artists
+            </Link>
+            <span aria-hidden="true" className="text-muted-foreground">
+              •
+            </span>
+            <Link
+              to="/songs"
+              className="text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            >
+              Browse &amp; search songs
             </Link>
           </div>
         </CardContent>
@@ -1086,7 +1277,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                       <td
                         className={`px-4 py-2 text-right font-mono ${weightColorClass(score.normalizedScore)}`}
                       >
-                        {formatNumber(score.rarityScore)}
+                        {formatRarity(score.rarityScore)}
                       </td>
                       <td className="px-4 py-2 text-right">{score.entries}</td>
                     </tr>
@@ -1294,15 +1485,11 @@ const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores, songDetails, c
                   score ? weightColorClass(score.normalizedScore) : 'text-muted-foreground'
                 }`}
               >
-                {score ? formatNumber(score.rarityScore) : 'N/A'}
+                {score ? formatRarity(score.rarityScore) : 'N/A'}
               </p>
             </div>
           </div>
-          <div className="mt-4 grid gap-4 sm:grid-cols-3">
-            <div>
-              <p className="text-xs uppercase text-muted-foreground">Show ID</p>
-              <p className="font-mono">{numericId}</p>
-            </div>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <div>
               <p className="text-xs uppercase text-muted-foreground">Songs Logged</p>
               <p className="font-medium">{score?.entries ?? showEntries.length}</p>
@@ -1348,7 +1535,7 @@ const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores, songDetails, c
                   const duration = formatDuration(entry?.tracktime);
                   const rarity = songDetails[item.key];
                   const weightNormalized = rarity?.normalized ?? null;
-                  const weightLabel = weightNormalized != null ? formatNumber(weightNormalized) : null;
+                  const weightLabel = weightNormalized != null ? formatRarity(weightNormalized) : null;
                   const songKeyRef = rarity?.songKey;
                   const isCoverEntry = Boolean(rarity?.isCover);
                   const coverArtistNameRaw =
@@ -1363,6 +1550,14 @@ const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores, songDetails, c
                   const coverArtistName = isUnknownCoverArtist ? null : coverArtistResolved;
                   const coverArtistKeyResolved = isUnknownCoverArtist ? null : artistMeta?.key ?? coverArtistKey;
                   const coverLabel = isCoverEntry ? 'Cover' : null;
+                  const entryDateSource =
+                    typeof entry?.showdate === 'string' && entry.showdate.trim().length > 0
+                      ? entry.showdate
+                      : rawShowDate;
+                  const entryDate = parseUtcDate(entryDateSource);
+                  const firstAppearanceIso = rarity?.firstAppearance ?? null;
+                  const firstAppearanceDate = firstAppearanceIso ? parseUtcDate(firstAppearanceIso) : null;
+                  const isFirstTime = isSameUtcDay(firstAppearanceDate, entryDate);
                   return {
                     itemKey: item.key,
                     songName,
@@ -1375,7 +1570,8 @@ const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores, songDetails, c
                     coverArtistName,
                     coverArtistKey: coverArtistKeyResolved,
                     songKeyRef,
-                    isSegueArrow
+                    isSegueArrow,
+                    isFirstTime
                   };
                 });
 
@@ -1420,6 +1616,7 @@ const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores, songDetails, c
                       role={isSongLink ? 'button' : undefined}
                       tabIndex={isSongLink ? 0 : -1}
                       aria-label={isSongLink ? `View song stats` : undefined}
+                      data-first-time={detail.isFirstTime ? 'true' : undefined}
                     >
                       <div className="flex flex-wrap items-baseline justify-between gap-2">
                         <div className="flex flex-wrap items-baseline gap-2">
@@ -1429,6 +1626,14 @@ const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores, songDetails, c
                           ) : null}
                           {detail.transitionLabel ? (
                             <span className="text-xs uppercase text-muted-foreground">{detail.transitionLabel}</span>
+                          ) : null}
+                          {detail.isFirstTime ? (
+                            <Badge
+                              variant="outline"
+                              className="border-emerald-400 bg-emerald-500/10 text-[10px] font-semibold uppercase tracking-wide text-emerald-700"
+                            >
+                              First Time Played
+                            </Badge>
                           ) : null}
                         </div>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -1611,7 +1816,7 @@ const SongDetailPage: React.FC<SongDetailProps> = ({ dataset, songDetails, songA
     key: 'date',
     direction: 'desc'
   });
-  const [occurrencePending, startOccurrenceTransition] = useTransition();
+  const [, startOccurrenceTransition] = useTransition();
 
   const updateOccurrenceSort = useCallback(
     (key: SongOccurrenceSortKey, defaultDirection: SortDirection) => {
@@ -1715,7 +1920,7 @@ const SongDetailPage: React.FC<SongDetailProps> = ({ dataset, songDetails, songA
             <div>
               <p className="text-xs uppercase text-muted-foreground">Rarity</p>
               <p className={`font-mono ${weightColorClass(averageWeight)}`}>
-                {averageWeight != null ? formatNumber(averageWeight) : '—'}
+                {averageWeight != null ? formatRarity(averageWeight) : '—'}
               </p>
             </div>
           </div>
@@ -1841,7 +2046,7 @@ const SongDetailPage: React.FC<SongDetailProps> = ({ dataset, songDetails, songA
                     <th className="px-4 py-2 text-left font-medium">Show Notes</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border bg-card" aria-busy={occurrencePending}>
+                <tbody className="divide-y divide-border bg-card">
                   {sortedOccurrences.map((item) => {
                     const showId = item.entry?.show_id;
                     const score = showId != null ? scoreByShow.get(showId) : undefined;
@@ -1883,7 +2088,7 @@ const SongDetailPage: React.FC<SongDetailProps> = ({ dataset, songDetails, songA
                         {item.showLabel}
                         {score ? (
                           <span className={`ml-2 text-xs font-mono ${weightColorClass(score.normalizedScore)}`}>
-                            Rarity {formatNumber(score.rarityScore)}
+                            Rarity {formatRarity(score.rarityScore)}
                           </span>
                         ) : null}
                         </td>
@@ -1905,11 +2110,254 @@ const SongDetailPage: React.FC<SongDetailProps> = ({ dataset, songDetails, songA
   );
 };
 
+const SongIndex: React.FC<SongIndexProps> = ({ songs }) => {
+  const navigate = useNavigate();
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sort, setSort] = useState<SongSortState>({ key: 'averageRarity', direction: 'desc' });
+  const [isPending, startTransition] = useTransition();
+  const [onlyCovers, setOnlyCovers] = useState(false);
+  const trimmedSearch = searchTerm.trim();
+
+  const filteredSongs = useMemo(() => {
+    let next = songs;
+    if (onlyCovers) {
+      next = next.filter((song) => song.coverArtists.length > 0);
+    }
+    if (trimmedSearch.length === 0) return next;
+    const query = trimmedSearch.toLowerCase();
+    return next.filter((song) => song.name.toLowerCase().includes(query));
+  }, [songs, trimmedSearch, onlyCovers]);
+
+  const sortedSongs = useMemo(
+    () => sortSongs(filteredSongs, sort),
+    [filteredSongs, sort]
+  );
+
+  const handleSearchChange = useCallback(
+    (value: string) => {
+      startTransition(() => {
+        setSearchTerm(value);
+      });
+    },
+    [startTransition]
+  );
+
+  const handleOnlyCoversChange = useCallback((checked: boolean) => {
+    setOnlyCovers(checked);
+  }, []);
+
+  const handleSort = useCallback(
+    (key: SongSortKey) => {
+      startTransition(() => {
+        setSort((prev) => {
+          if (prev.key === key) {
+            return { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
+          }
+          if (key === 'name' || key === 'firstDate') {
+            return { key, direction: 'asc' };
+          }
+          return { key, direction: 'desc' };
+        });
+      });
+    },
+    [startTransition]
+  );
+
+  const renderSortHeader = (label: string, key: SongSortKey, align: 'left' | 'right' = 'left') => {
+    const isActive = sort.key === key;
+    const direction = isActive ? sort.direction : undefined;
+    const indicator = direction === 'asc' ? '▲' : direction === 'desc' ? '▼' : '';
+    return (
+      <button
+        type="button"
+        onClick={() => handleSort(key)}
+        className={`flex w-full items-center gap-1 text-sm font-medium ${
+          align === 'right' ? 'justify-end' : 'justify-start'
+        }`}
+      >
+        <span>{label}</span>
+        <span aria-hidden="true" className="text-xs text-muted-foreground">
+          {indicator}
+        </span>
+      </button>
+    );
+  };
+
+  if (songs.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Songs</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            Load the cached dataset to explore songs. Use the “Load Local Dataset” button above.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <CardTitle>Songs</CardTitle>
+          <Badge variant="secondary">{filteredSongs.length.toLocaleString()} matching</Badge>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Filter songs by name, inspect average rarity, and drill into detailed appearance stats.
+        </p>
+        <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="w-full max-w-sm">
+            <Input
+              value={searchTerm}
+              onChange={(event) => handleSearchChange(event.target.value)}
+              placeholder="Search songs (e.g. Arcadia)"
+              aria-label="Search songs"
+            />
+          </div>
+          <label className="flex items-center gap-2 text-sm font-medium" htmlFor="songs-only-covers">
+            <input
+              id="songs-only-covers"
+              type="checkbox"
+              role="switch"
+              checked={onlyCovers}
+              onChange={(event) => handleOnlyCoversChange(event.target.checked)}
+              className="h-5 w-9 cursor-pointer"
+              {...({ switch: true } as Record<string, boolean>)}
+            />
+            Only covers
+          </label>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {sortedSongs.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {trimmedSearch.length > 0 ? `No songs match “${trimmedSearch}”.` : 'No songs match the current filters.'}
+          </p>
+        ) : (
+          <div className="overflow-x-auto table-wrapper">
+            <table
+              id="songs-table"
+              aria-label="Songs"
+              className="min-w-full divide-y divide-border text-sm"
+            >
+              <thead className="bg-muted/50">
+                <tr>
+                  <th
+                    className="px-4 py-2 text-left"
+                    aria-sort={sort.key === 'name' ? `${sort.direction}ending` : 'none'}
+                  >
+                    {renderSortHeader('Song', 'name')}
+                  </th>
+                  <th
+                    className="px-4 py-2 text-right"
+                    aria-sort={sort.key === 'averageRarity' ? `${sort.direction}ending` : 'none'}
+                  >
+                    {renderSortHeader('Rarity', 'averageRarity', 'right')}
+                  </th>
+                  <th
+                    className="px-4 py-2 text-right"
+                    aria-sort={sort.key === 'uniqueShows' ? `${sort.direction}ending` : 'none'}
+                  >
+                    {renderSortHeader('Shows', 'uniqueShows', 'right')}
+                  </th>
+                  <th
+                    className="px-4 py-2 text-right"
+                    aria-sort={sort.key === 'percentage' ? `${sort.direction}ending` : 'none'}
+                  >
+                    {renderSortHeader('Play %', 'percentage', 'right')}
+                  </th>
+                  <th
+                    className="px-4 py-2 text-left"
+                    aria-sort={sort.key === 'firstDate' ? `${sort.direction}ending` : 'none'}
+                  >
+                    {renderSortHeader('First Played', 'firstDate')}
+                  </th>
+                  <th
+                    className="px-4 py-2 text-left"
+                    aria-sort={sort.key === 'lastDate' ? `${sort.direction}ending` : 'none'}
+                  >
+                    {renderSortHeader('Last Played', 'lastDate')}
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border bg-card" aria-busy={isPending}>
+                {sortedSongs.map((song) => {
+                  const path = `/songs/${encodeURIComponent(song.songKey)}`;
+                  const handleRowClick = () => navigate(path);
+                  const handleRowKeyDown = (event: React.KeyboardEvent<HTMLTableRowElement>) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      navigate(path);
+                    }
+                  };
+                  return (
+                    <tr
+                      key={song.songKey}
+                      className="table-row-virtual cursor-pointer hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                      onClick={handleRowClick}
+                      onKeyDown={handleRowKeyDown}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`View song stats for ${song.name}`}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-primary">{song.name}</div>
+                        {song.coverArtists.length > 0 ? (
+                          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                            {song.coverArtists.map((artist) => (
+                              <Badge key={artist.key} variant="outline" className="text-[11px] font-medium">
+                                <Link
+                                  to={`/covers/${encodeURIComponent(artist.key)}`}
+                                  className="inline-flex items-center gap-1 text-xs text-primary no-underline hover:underline"
+                                  onClick={(event) => event.stopPropagation()}
+                                  onKeyDown={(event) => {
+                                    if (event.key === ' ' || event.key === 'Enter') {
+                                      event.stopPropagation();
+                                    }
+                                  }}
+                                >
+                                  Cover • {artist.name}
+                                </Link>
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {song.averageRarity != null ? (
+                          <span className={`font-mono ${weightColorClass(song.averageRarity)}`}>
+                            {formatRarity(song.averageRarity)}
+                          </span>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right">{song.uniqueShows.toLocaleString()}</td>
+                      <td className="px-4 py-3 text-right">
+                        {Number.isFinite(song.percentage) ? formatPercentage(song.percentage, 1) : '—'}
+                      </td>
+                      <td className="px-4 py-3">{formatDateDisplay(song.firstDate ?? null)}</td>
+                      <td className="px-4 py-3">{formatDateDisplay(song.lastDate ?? null)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
 const CoverArtistIndex: React.FC<CoverArtistIndexProps> = ({ artists }) => {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [sort, setSort] = useState<CoverArtistSortState>({ key: 'totalCovers', direction: 'desc' });
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
 
   const filteredArtists = useMemo(() => {
     const trimmed = searchTerm.trim();
@@ -2100,7 +2548,7 @@ const CoverArtistPage: React.FC<CoverArtistPageProps> = ({ artists }) => {
     key: 'coverCount',
     direction: 'desc'
   });
-  const [songPending, startSongTransition] = useTransition();
+  const [, startSongTransition] = useTransition();
   const songs = useMemo(() => {
     if (!artist) {
       return [];
@@ -2301,7 +2749,7 @@ const CoverArtistPage: React.FC<CoverArtistPageProps> = ({ artists }) => {
                     </th>
                   </tr>
                 </thead>
-              <tbody className="divide-y divide-border bg-card" aria-busy={songPending}>
+              <tbody className="divide-y divide-border bg-card">
                   {songs.map((song) => {
                     const path = `/songs/${encodeURIComponent(song.songKey)}`;
                     const handleRowClick = () => navigate(path);
@@ -2329,7 +2777,7 @@ const CoverArtistPage: React.FC<CoverArtistPageProps> = ({ artists }) => {
                         <td className="px-4 py-2 text-right">
                           {song.averageRarity != null ? (
                             <span className={`font-mono ${weightColorClass(song.averageRarity)}`}>
-                              {formatNumber(song.averageRarity)}
+                              {formatRarity(song.averageRarity)}
                             </span>
                           ) : (
                             <span className="text-xs text-muted-foreground">—</span>

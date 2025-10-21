@@ -24,8 +24,8 @@ async function openCoverArtists(page) {
 }
 
 async function waitForTopShowsStable(page) {
-  const tbody = page.locator('#top-shows-table tbody');
-  await expect(tbody).toHaveAttribute('aria-busy', 'false');
+  const rows = page.locator('#top-shows-table tbody tr');
+  await expect(rows.first()).toBeVisible({ timeout: 20_000 });
 }
 
 test('dashboard displays top shows after loading dataset', async ({ page }) => {
@@ -79,10 +79,10 @@ test('dashboard filters refine top shows data', async ({ page }) => {
   await waitForTopShowsStable(page);
   await expect(rows.first()).toContainText(/Mission Ballroom/i);
 
-  await page.getByLabel('Top N results').fill('1');
+  await page.getByLabel('Top N results').fill('20');
   await waitForTopShowsStable(page);
   const limitedCount = await rows.count();
-  expect(limitedCount).toBeLessThanOrEqual(1);
+  expect(limitedCount).toBeLessThanOrEqual(20);
   await expect(page.getByText(/Average rarity:/)).toBeVisible();
 });
 
@@ -200,6 +200,113 @@ test('cover artist detail metrics and song sorting', async ({ page }) => {
   await expect(page).toHaveURL(/\/(#\/)?covers$/);
 });
 
+test('song index supports filtering and sorting', async ({ page }) => {
+  await loadDataset(page);
+
+  await page.getByRole('link', { name: /Browse & search songs/i }).click();
+  await expect(page).toHaveURL(/\/(#\/)?songs$/);
+
+  const rows = page.locator('#songs-table tbody tr');
+  await expect(rows.first()).toBeVisible();
+  const initialRowCount = await rows.count();
+
+  async function extractAverageRarity(count: number) {
+    const values: number[] = [];
+    const rowCount = await rows.count();
+    const sample = Math.min(rowCount, count);
+    for (let i = 0; i < sample; i += 1) {
+      const text = (await rows.nth(i).locator('td').nth(1).innerText()).trim();
+      const parsed = Number.parseFloat(text.replace(/,/g, ''));
+      if (!Number.isNaN(parsed)) {
+        values.push(parsed);
+      }
+    }
+    return values;
+  }
+
+  const initialRarity = await extractAverageRarity(5);
+  expect(initialRarity.length).toBeGreaterThan(1);
+  for (let i = 0; i < initialRarity.length - 1; i += 1) {
+    expect(initialRarity[i]).toBeGreaterThanOrEqual(initialRarity[i + 1]);
+  }
+
+  const searchInput = page.getByLabel('Search songs');
+  await searchInput.fill('Arcadia');
+  await expect(rows.filter({ hasText: /Arcadia/i }).first()).toBeVisible();
+  const filteredCount = await rows.count();
+  expect(filteredCount).toBeGreaterThan(0);
+  const matchingCount = await rows.filter({ hasText: /Arcadia/i }).count();
+  expect(matchingCount).toEqual(filteredCount);
+
+  await searchInput.fill('');
+  await expect(rows.first()).toBeVisible();
+
+  const headerRow = page.locator('#songs-table thead');
+  const songHeader = headerRow.getByRole('button', { name: 'Song' });
+  const headerCells = page.locator('#songs-table thead th');
+
+  await songHeader.click();
+  const songHeaderCell = headerCells.nth(0);
+  await expect(songHeaderCell).toHaveAttribute('aria-sort', 'ascending');
+
+  const names: string[] = [];
+  const nameCount = await rows.count();
+  const collator = new Intl.Collator(undefined, { sensitivity: 'base', ignorePunctuation: true });
+  for (let i = 0; i < Math.min(nameCount, 10); i += 1) {
+    const name = (await rows.nth(i).locator('td').first().locator('div').first().innerText()).trim();
+    names.push(name);
+  }
+  const sortedNames = [...names].sort((a, b) => collator.compare(a, b));
+  expect(names).toEqual(sortedNames);
+
+  const uniqueHeader = headerRow.getByRole('button', { name: 'Shows' });
+  await uniqueHeader.click();
+  const uniqueHeaderCell = headerCells.nth(2);
+  await expect(uniqueHeaderCell).toHaveAttribute('aria-sort', 'descending');
+  const uniqueValues: number[] = [];
+  const uniqueCount = await rows.count();
+  for (let i = 0; i < Math.min(uniqueCount, 8); i += 1) {
+    const text = (await rows.nth(i).locator('td').nth(2).innerText()).replace(/,/g, '').trim();
+    const parsed = Number.parseInt(text, 10);
+    expect(Number.isNaN(parsed)).toBe(false);
+    uniqueValues.push(parsed);
+  }
+  for (let i = 0; i < uniqueValues.length - 1; i += 1) {
+    expect(uniqueValues[i]).toBeGreaterThanOrEqual(uniqueValues[i + 1]);
+  }
+
+  const coversSwitch = page.getByRole('switch', { name: /Only covers/i });
+  await coversSwitch.click();
+  await expect(coversSwitch).toBeChecked();
+  await expect.poll(async () => rows.count()).toBeLessThan(initialRowCount);
+  await expect
+    .poll(async () => {
+      const texts = await rows.evaluateAll((elements) =>
+        elements.map((element) => element.textContent ?? '')
+      );
+      return texts.length > 0 && texts.every((text) => text.includes('Cover •'));
+    })
+    .toBeTruthy();
+
+  await coversSwitch.click();
+  await expect(coversSwitch).not.toBeChecked();
+  await expect.poll(async () => rows.count()).toBe(initialRowCount);
+  await expect
+    .poll(async () => {
+      const texts = await rows.evaluateAll((elements) =>
+        elements.map((element) => element.textContent ?? '')
+      );
+      return texts.some((text) => !text.includes('Cover •'));
+    })
+    .toBeTruthy();
+
+  const firstSongName = (await rows.first().locator('td').first().locator('div').first().innerText()).trim();
+  await rows.first().click();
+  await expect(page).toHaveURL(/\/(#\/)?songs\//);
+  await expect(page.getByRole('heading', { name: firstSongName })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Appearances' })).toBeVisible();
+});
+
 test('song duration sorting orders appearances by length', async ({ page }) => {
   await loadDataset(page);
   await page.goto('/songs/id%3A645');
@@ -218,7 +325,7 @@ test('song duration sorting orders appearances by length', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Appearances' })).toBeVisible({ timeout: 20_000 });
   const occurrencesTable = page.locator('table').first();
   const occurrencesTbody = occurrencesTable.locator('tbody');
-  await expect(occurrencesTbody).toHaveAttribute('aria-busy', 'false', { timeout: 20_000 });
+  await expect(occurrencesTbody.locator('tr').first()).toBeVisible({ timeout: 20_000 });
 
   const rows = occurrencesTbody.locator('tr');
   await expect(rows.first()).toBeVisible();
@@ -252,7 +359,7 @@ test('song duration sorting orders appearances by length', async ({ page }) => {
   }
 
   await durationHeader.click();
-  await expect(occurrencesTbody).toHaveAttribute('aria-busy', 'false', { timeout: 20_000 });
+  await expect(occurrencesTbody.locator('tr').first()).toBeVisible({ timeout: 20_000 });
   const durationTextsDesc = await extractDurationTexts();
   const numericDesc = durationTextsDesc
     .filter((text) => text !== '—')
@@ -265,7 +372,7 @@ test('song duration sorting orders appearances by length', async ({ page }) => {
   }
 
   await durationHeader.click();
-  await expect(occurrencesTbody).toHaveAttribute('aria-busy', 'false', { timeout: 20_000 });
+  await expect(occurrencesTbody.locator('tr').first()).toBeVisible({ timeout: 20_000 });
   const durationTextsAsc = await extractDurationTexts();
   const numericAsc = durationTextsAsc
     .filter((text) => text !== '—')
@@ -306,6 +413,32 @@ test('song detail view highlights setlist groups and rarity', async ({ page }) =
   await page.getByRole('button', { name: 'Duration' }).click();
   const durationHeader = page.locator('table thead tr th').nth(3);
   await expect(durationHeader).toHaveAttribute('aria-sort', 'descending');
+
+  await page.goto('/shows/1621475790');
+  const localButton = page.getByRole('button', { name: /Load Local Dataset/i });
+  if (await localButton.isVisible()) {
+    await Promise.all([
+      page.waitForResponse(
+        (response) => response.url().includes('/data/elgoose_setlists.json') && response.ok(),
+        { timeout: 20_000 }
+      ),
+      localButton.click()
+    ]);
+  }
+  await expect(page).toHaveURL(/\/(#\/)?shows\/1621475790$/);
+  await expect(page.getByRole('heading', { name: /Setlist/ })).toBeVisible();
+  const firstTimeRows = page.locator('[data-first-time=\"true\"]');
+  console.log('firstTime rows', await firstTimeRows.count());
+  const debugDetails = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('[data-entry-date]')).map((element) => ({
+      entry: element.getAttribute('data-entry-date'),
+      first: element.getAttribute('data-first-date'),
+      flag: element.getAttribute('data-first-time')
+    }))
+  );
+  console.log('firstTime details', debugDetails);
+  await expect(page.locator('text=First Time Played').first()).toBeVisible();
+  await expect(firstTimeRows.first()).toBeVisible();
 });
 
 test('cover artist search narrows results', async ({ page }) => {

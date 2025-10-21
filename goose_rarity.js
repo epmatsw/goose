@@ -28,6 +28,7 @@ const LENGTH_ATTENUATION = 0.1;
 const FTP_BONUS_ORIGINAL = 0.1;
 const FTP_BONUS_COVER = 0.05;
 const FTP_YEAR_THRESHOLD = new Date('2020-01-01T00:00:00Z');
+const FIRST_PLAY_CUTOFF = new Date('2015-01-01T00:00:00Z');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -440,7 +441,7 @@ function computeRarityScores(dataset) {
     const key = songKey(entry);
     let stats = songStats.get(key);
     if (!stats) {
-      stats = { showIds: new Set(), firstDate: undefined };
+      stats = { showIds: new Set(), firstEligibleDate: undefined, firstAppearance: undefined };
       songStats.set(key, stats);
     }
     if (entry?.show_id != null) {
@@ -449,8 +450,13 @@ function computeRarityScores(dataset) {
     const entryDate =
       parseShowDate(entry?.showdate) ??
       (entry?.show_id != null ? showDateMap.get(entry.show_id) : undefined);
-    if (entryDate && (!stats.firstDate || entryDate < stats.firstDate)) {
-      stats.firstDate = entryDate;
+    if (entryDate) {
+      if (!stats.firstAppearance || entryDate < stats.firstAppearance) {
+        stats.firstAppearance = entryDate;
+      }
+      if (entryDate >= FIRST_PLAY_CUTOFF && (!stats.firstEligibleDate || entryDate < stats.firstEligibleDate)) {
+        stats.firstEligibleDate = entryDate;
+      }
     }
   }
 
@@ -474,14 +480,19 @@ function computeRarityScores(dataset) {
   }
 
   const firstDateBySong = new Map();
+  const firstAppearanceBySong = new Map();
   for (const [key, stats] of songStats.entries()) {
     const plays = Math.max(stats.showIds.size, 1);
-    const denominator = Math.max(showsSince(stats.firstDate), plays);
+    const denominator = Math.max(showsSince(stats.firstEligibleDate), plays);
     const percentage = denominator > 0 ? plays / denominator : 1;
     const percentageMetric = Math.max(percentage * 100, Number.EPSILON);
     frequencyBySong.set(key, percentageMetric);
-    if (stats.firstDate) {
-      firstDateBySong.set(key, stats.firstDate);
+    const displayFirstDate = stats.firstEligibleDate ?? stats.firstAppearance;
+    if (displayFirstDate) {
+      firstDateBySong.set(key, displayFirstDate);
+    }
+    if (stats.firstAppearance) {
+      firstAppearanceBySong.set(key, stats.firstAppearance);
     }
   }
 
@@ -491,8 +502,8 @@ function computeRarityScores(dataset) {
     const base = Math.min(1 / frequencyMetric, 1 / F_CAP);
     const coverFactor = 1 - W_C * (isCover(entry) ? 1 : 0);
     const raw = W_F * base * Math.max(coverFactor, 0);
-    const firstDate = firstDateBySong.get(key);
-    const ftpBonus = firstDate && firstDate >= FTP_YEAR_THRESHOLD
+    const firstAppearance = firstAppearanceBySong.get(key);
+    const ftpBonus = firstAppearance && firstAppearance >= FTP_YEAR_THRESHOLD
       ? (isCover(entry) ? FTP_BONUS_COVER : FTP_BONUS_ORIGINAL)
       : 0;
     return {
