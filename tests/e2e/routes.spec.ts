@@ -200,6 +200,84 @@ test('cover artist detail metrics and song sorting', async ({ page }) => {
   await expect(page).toHaveURL(/\/(#\/)?covers$/);
 });
 
+test('song duration sorting orders appearances by length', async ({ page }) => {
+  await loadDataset(page);
+  await page.goto('/songs/id%3A645');
+
+  const loadButton = page.getByRole('button', { name: /Load Local Dataset/i });
+  if (await loadButton.isVisible()) {
+    await Promise.all([
+      page.waitForResponse(
+        (response) => response.url().includes('/data/elgoose_setlists.json') && response.ok(),
+        { timeout: 20_000 }
+      ),
+      loadButton.click()
+    ]);
+  }
+
+  await expect(page.getByRole('heading', { name: 'Appearances' })).toBeVisible({ timeout: 20_000 });
+  const occurrencesTable = page.locator('table').first();
+  const occurrencesTbody = occurrencesTable.locator('tbody');
+  await expect(occurrencesTbody).toHaveAttribute('aria-busy', 'false', { timeout: 20_000 });
+
+  const rows = occurrencesTbody.locator('tr');
+  await expect(rows.first()).toBeVisible();
+
+  const durationHeader = page.getByRole('button', { name: 'Duration' });
+  async function extractDurationTexts() {
+    const count = await rows.count();
+    const values: string[] = [];
+    for (let i = 0; i < count; i += 1) {
+      const text = (await rows.nth(i).locator('td').nth(3).innerText()).trim();
+      values.push(text.length === 0 ? '—' : text);
+    }
+    return values;
+  }
+
+  function parseDuration(text: string): number {
+    const parts = text.split(':').map((part) => Number.parseInt(part, 10));
+    return parts.reduce((total, part) => total * 60 + (Number.isNaN(part) ? 0 : part), 0);
+  }
+
+  function assertDescending(durations: number[]) {
+    for (let i = 0; i < durations.length - 1; i += 1) {
+      expect(durations[i]).toBeGreaterThanOrEqual(durations[i + 1]);
+    }
+  }
+
+  function assertAscending(durations: number[]) {
+    for (let i = 0; i < durations.length - 1; i += 1) {
+      expect(durations[i]).toBeLessThanOrEqual(durations[i + 1]);
+    }
+  }
+
+  await durationHeader.click();
+  await expect(occurrencesTbody).toHaveAttribute('aria-busy', 'false', { timeout: 20_000 });
+  const durationTextsDesc = await extractDurationTexts();
+  const numericDesc = durationTextsDesc
+    .filter((text) => text !== '—')
+    .map(parseDuration);
+  expect(numericDesc.length).toBeGreaterThan(0);
+  assertDescending(numericDesc);
+  const missingIndexDesc = durationTextsDesc.findIndex((text) => text === '—');
+  if (missingIndexDesc !== -1) {
+    expect(missingIndexDesc).toBeGreaterThanOrEqual(numericDesc.length);
+  }
+
+  await durationHeader.click();
+  await expect(occurrencesTbody).toHaveAttribute('aria-busy', 'false', { timeout: 20_000 });
+  const durationTextsAsc = await extractDurationTexts();
+  const numericAsc = durationTextsAsc
+    .filter((text) => text !== '—')
+    .map(parseDuration);
+  expect(numericAsc.length).toBeGreaterThan(0);
+  assertAscending(numericAsc);
+  const missingIndexAsc = durationTextsAsc.findIndex((text) => text === '—');
+  if (missingIndexAsc !== -1) {
+    expect(missingIndexAsc).toBeGreaterThanOrEqual(numericAsc.length);
+  }
+});
+
 test('song detail view highlights setlist groups and rarity', async ({ page }) => {
   await loadDataset(page);
   await page.getByLabel('Venue filter').fill('Mission Ballroom');

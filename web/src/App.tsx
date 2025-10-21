@@ -219,6 +219,21 @@ type SongOccurrenceRow = {
 
 function sortSongOccurrences(items: SongOccurrenceRow[], sort: SongOccurrenceSortState): SongOccurrenceRow[] {
   const comparator = (a: SongOccurrenceRow, b: SongOccurrenceRow) => {
+    if (sort.key === 'duration') {
+      const aHasDuration = Number.isFinite(a.durationSeconds);
+      const bHasDuration = Number.isFinite(b.durationSeconds);
+
+      if (aHasDuration && bHasDuration) {
+        const diff = a.durationSeconds - b.durationSeconds;
+        if (diff !== 0) {
+          return sort.direction === 'asc' ? diff : -diff;
+        }
+      } else if (aHasDuration !== bHasDuration) {
+        return aHasDuration ? -1 : 1;
+      }
+      // fall through to tie-breaker when durations are equal or both missing
+    }
+
     let result = 0;
     switch (sort.key) {
       case 'show':
@@ -228,7 +243,7 @@ function sortSongOccurrences(items: SongOccurrenceRow[], sort: SongOccurrenceSor
         result = localeCollator.compare(a.setLabel, b.setLabel);
         break;
       case 'duration':
-        result = a.durationSeconds - b.durationSeconds;
+        result = 0;
         break;
       case 'date':
       default:
