@@ -428,15 +428,6 @@ test('song detail view highlights setlist groups and rarity', async ({ page }) =
   await expect(page).toHaveURL(/\/(#\/)?shows\/1621475790$/);
   await expect(page.getByRole('heading', { name: /Setlist/ })).toBeVisible();
   const firstTimeRows = page.locator('[data-first-time=\"true\"]');
-  console.log('firstTime rows', await firstTimeRows.count());
-  const debugDetails = await page.evaluate(() =>
-    Array.from(document.querySelectorAll('[data-entry-date]')).map((element) => ({
-      entry: element.getAttribute('data-entry-date'),
-      first: element.getAttribute('data-first-date'),
-      flag: element.getAttribute('data-first-time')
-    }))
-  );
-  console.log('firstTime details', debugDetails);
   await expect(page.locator('text=First Time Played').first()).toBeVisible();
   await expect(firstTimeRows.first()).toBeVisible();
 });
