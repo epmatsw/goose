@@ -81,7 +81,6 @@ const MIN_SHOW_SCORE = 0.001;
 const LENGTH_ATTENUATION = 0.1;
 const FTP_BONUS_ORIGINAL = 0.1;
 const FTP_BONUS_COVER = 0.05;
-const FTP_YEAR_THRESHOLD = new Date('2020-01-01T00:00:00Z');
 const FIRST_PLAY_CUTOFF = new Date('2015-01-01T00:00:00Z');
 
 function decodeHtmlEntities(value: string | null | undefined): string {
@@ -315,10 +314,22 @@ export function computeRarityScores(dataset: Dataset): ComputeResult {
     const coverFactor = 1 - W_C * (isCoverEntry ? 1 : 0);
     const raw = W_F * base * Math.max(coverFactor, 0);
     const ftpSourceDate = firstAppearanceBySong.get(key);
-    const ftpBonus =
-      ftpSourceDate && ftpSourceDate >= FTP_YEAR_THRESHOLD
-        ? (isCoverEntry ? FTP_BONUS_COVER : FTP_BONUS_ORIGINAL)
-        : 0;
+    const usage = usageBySong.get(key);
+    const ftpEligibleDate = usage?.firstDate ?? ftpSourceDate;
+    const entryDate =
+      parseShowDate(entry?.showdate ?? undefined) ??
+      (entry?.show_id != null ? showDateMap.get(entry.show_id) : undefined);
+    const isFirstPlayEntry =
+      entryDate &&
+      ftpEligibleDate &&
+      entryDate.getUTCFullYear() === ftpEligibleDate.getUTCFullYear() &&
+      entryDate.getUTCMonth() === ftpEligibleDate.getUTCMonth() &&
+      entryDate.getUTCDate() === ftpEligibleDate.getUTCDate();
+    const ftpBonus = isFirstPlayEntry
+      ? isCoverEntry
+        ? FTP_BONUS_COVER
+        : FTP_BONUS_ORIGINAL
+      : 0;
     const entryKey = createSetlistEntryKey(entry, index);
     return {
       showId: entry?.show_id ?? undefined,

@@ -4,6 +4,7 @@ import { Link, Route, Routes, useLocation, useNavigate, useParams } from 'react-
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Select } from './components/ui/select';
+import { Switch } from './components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Badge } from './components/ui/badge';
 import { clearDataset, loadDataset, saveDataset, GooseDataset } from './lib/cache';
@@ -1464,45 +1465,34 @@ const ShowDetail: React.FC<ShowDetailProps> = ({ dataset, scores, songDetails, c
 
   return (
     <>
-      <Card>
-        <CardHeader>
-          <CardTitle>{dateLabel}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div>
-              <p className="text-xs uppercase text-muted-foreground">Venue</p>
-              <p className="font-medium">{venue}</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase text-muted-foreground">Location</p>
-              <p className="font-medium">{location}</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase text-muted-foreground">Rarity Score</p>
-              <p
-                className={`font-mono ${
-                  score ? weightColorClass(score.normalizedScore) : 'text-muted-foreground'
-                }`}
-              >
-                {score ? formatRarity(score.rarityScore) : 'N/A'}
-              </p>
-            </div>
-          </div>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <div>
-              <p className="text-xs uppercase text-muted-foreground">Songs Logged</p>
-              <p className="font-medium">{score?.entries ?? showEntries.length}</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase text-muted-foreground">Cached</p>
-              <p className="font-medium">
-                {dataset.fetchedAt ? formatDateTimeDisplay(dataset.fetchedAt) : 'Unknown'}
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+  <Card>
+    <CardHeader className="space-y-0">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <CardTitle className="text-xl font-semibold sm:text-2xl">
+            {venue} - {dateLabel}
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">{location}</p>
+        </div>
+        <div className="flex flex-col items-end gap-1 text-right">
+          <span className="text-xs uppercase text-muted-foreground">Rarity</span>
+          <span
+            className={`font-mono text-4xl font-semibold sm:text-5xl ${
+              score ? weightColorClass(score.normalizedScore) : 'text-muted-foreground'
+            }`}
+          >
+            {score ? formatRarity(score.rarityScore) : 'N/A'}
+          </span>
+        </div>
+      </div>
+    </CardHeader>
+    <CardContent>
+      <div>
+        <p className="text-xs uppercase text-muted-foreground">Songs Logged</p>
+        <p className="font-medium">{score?.entries ?? showEntries.length}</p>
+      </div>
+    </CardContent>
+  </Card>
 
       <Card>
         <CardHeader>
@@ -2116,17 +2106,18 @@ const SongIndex: React.FC<SongIndexProps> = ({ songs }) => {
   const [sort, setSort] = useState<SongSortState>({ key: 'averageRarity', direction: 'desc' });
   const [isPending, startTransition] = useTransition();
   const [onlyCovers, setOnlyCovers] = useState(false);
+  const [filterOnlyCovers, setFilterOnlyCovers] = useState(false);
   const trimmedSearch = searchTerm.trim();
 
   const filteredSongs = useMemo(() => {
     let next = songs;
-    if (onlyCovers) {
+    if (filterOnlyCovers) {
       next = next.filter((song) => song.coverArtists.length > 0);
     }
     if (trimmedSearch.length === 0) return next;
     const query = trimmedSearch.toLowerCase();
     return next.filter((song) => song.name.toLowerCase().includes(query));
-  }, [songs, trimmedSearch, onlyCovers]);
+  }, [songs, trimmedSearch, filterOnlyCovers]);
 
   const sortedSongs = useMemo(
     () => sortSongs(filteredSongs, sort),
@@ -2142,9 +2133,15 @@ const SongIndex: React.FC<SongIndexProps> = ({ songs }) => {
     [startTransition]
   );
 
-  const handleOnlyCoversChange = useCallback((checked: boolean) => {
-    setOnlyCovers(checked);
-  }, []);
+  const handleOnlyCoversChange = useCallback(
+    (checked: boolean) => {
+      setOnlyCovers(checked);
+      startTransition(() => {
+        setFilterOnlyCovers(checked);
+      });
+    },
+    [startTransition]
+  );
 
   const handleSort = useCallback(
     (key: SongSortKey) => {
@@ -2217,17 +2214,13 @@ const SongIndex: React.FC<SongIndexProps> = ({ songs }) => {
               aria-label="Search songs"
             />
           </div>
-          <label className="flex items-center gap-2 text-sm font-medium" htmlFor="songs-only-covers">
-            <input
+          <label className="flex items-center gap-1.5 text-sm font-medium" htmlFor="songs-only-covers">
+            <Switch
               id="songs-only-covers"
-              type="checkbox"
-              role="switch"
               checked={onlyCovers}
-              onChange={(event) => handleOnlyCoversChange(event.target.checked)}
-              className="h-5 w-9 cursor-pointer"
-              {...({ switch: true } as Record<string, boolean>)}
+              onCheckedChange={handleOnlyCoversChange}
             />
-            Only covers
+            <span>Only covers</span>
           </label>
         </div>
       </CardHeader>

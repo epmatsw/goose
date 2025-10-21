@@ -1,17 +1,19 @@
 import { test, expect } from '../fixtures/coverage';
 
+const FAST_TIMEOUT = 4_500;
+
 async function loadDataset(page) {
   await page.goto('/');
   const loadButton = page.getByRole('button', { name: /Load Local Dataset/i });
   await expect(loadButton).toBeVisible();
   await Promise.all([
     page.waitForResponse((response) => response.url().includes('/data/elgoose_setlists.json') && response.ok(), {
-      timeout: 20_000
+      timeout: FAST_TIMEOUT
     }),
     loadButton.click()
   ]);
   const firstRow = page.locator('#top-shows-table tbody tr').first();
-  await expect(firstRow).toBeVisible({ timeout: 20_000 });
+  await expect(firstRow).toBeVisible({ timeout: FAST_TIMEOUT });
 }
 
 async function openCoverArtists(page) {
@@ -25,7 +27,7 @@ async function openCoverArtists(page) {
 
 async function waitForTopShowsStable(page) {
   const rows = page.locator('#top-shows-table tbody tr');
-  await expect(rows.first()).toBeVisible({ timeout: 20_000 });
+  await expect(rows.first()).toBeVisible({ timeout: FAST_TIMEOUT });
 }
 
 test('dashboard displays top shows after loading dataset', async ({ page }) => {
@@ -316,16 +318,16 @@ test('song duration sorting orders appearances by length', async ({ page }) => {
     await Promise.all([
       page.waitForResponse(
         (response) => response.url().includes('/data/elgoose_setlists.json') && response.ok(),
-        { timeout: 20_000 }
+        { timeout: FAST_TIMEOUT }
       ),
       loadButton.click()
     ]);
   }
 
-  await expect(page.getByRole('heading', { name: 'Appearances' })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('heading', { name: 'Appearances' })).toBeVisible({ timeout: FAST_TIMEOUT });
   const occurrencesTable = page.locator('table').first();
   const occurrencesTbody = occurrencesTable.locator('tbody');
-  await expect(occurrencesTbody.locator('tr').first()).toBeVisible({ timeout: 20_000 });
+  await expect(occurrencesTbody.locator('tr').first()).toBeVisible({ timeout: FAST_TIMEOUT });
 
   const rows = occurrencesTbody.locator('tr');
   await expect(rows.first()).toBeVisible();
@@ -359,7 +361,7 @@ test('song duration sorting orders appearances by length', async ({ page }) => {
   }
 
   await durationHeader.click();
-  await expect(occurrencesTbody.locator('tr').first()).toBeVisible({ timeout: 20_000 });
+  await expect(occurrencesTbody.locator('tr').first()).toBeVisible({ timeout: FAST_TIMEOUT });
   const durationTextsDesc = await extractDurationTexts();
   const numericDesc = durationTextsDesc
     .filter((text) => text !== '—')
@@ -372,7 +374,7 @@ test('song duration sorting orders appearances by length', async ({ page }) => {
   }
 
   await durationHeader.click();
-  await expect(occurrencesTbody.locator('tr').first()).toBeVisible({ timeout: 20_000 });
+  await expect(occurrencesTbody.locator('tr').first()).toBeVisible({ timeout: FAST_TIMEOUT });
   const durationTextsAsc = await extractDurationTexts();
   const numericAsc = durationTextsAsc
     .filter((text) => text !== '—')
@@ -395,7 +397,10 @@ test('song detail view highlights setlist groups and rarity', async ({ page }) =
   await expect(page).toHaveURL(/\/(#\/)?shows\/\d+$/);
 
   await expect(page.getByRole('heading', { name: /Setlist/ })).toBeVisible();
-  await expect(page.getByText(/Rarity Score/)).toBeVisible();
+  const showHeader = page.getByRole('heading', { level: 3, name: / - / });
+  await expect(showHeader).toBeVisible();
+  const headerRarityLabel = page.locator('span').filter({ hasText: /^Rarity$/ }).first();
+  await expect(headerRarityLabel).toBeVisible();
   await expect(page.getByText(/Songs Logged/)).toBeVisible();
   await expect(page.getByText('Set 1')).toBeVisible();
   await expect(page.locator('text=/Cover of/').first()).toBeVisible();
@@ -420,7 +425,7 @@ test('song detail view highlights setlist groups and rarity', async ({ page }) =
     await Promise.all([
       page.waitForResponse(
         (response) => response.url().includes('/data/elgoose_setlists.json') && response.ok(),
-        { timeout: 20_000 }
+        { timeout: FAST_TIMEOUT }
       ),
       localButton.click()
     ]);
