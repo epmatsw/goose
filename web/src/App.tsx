@@ -415,6 +415,7 @@ type CoverArtistMap = Record<string, CoverArtistDetail>;
 const App: React.FC = () => {
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [progressMessage, setProgressMessage] = useState<string | null>(null);
   const [dataset, setDataset] = useState<GooseDataset | null>(null);
   const [yearFilter, setYearFilter] = useState<YearOption>('all');
   const [venueFilter, setVenueFilter] = useState('');
@@ -463,10 +464,12 @@ const App: React.FC = () => {
         } else {
           setStatus('idle');
         }
+        setProgressMessage(null);
       } catch (err: any) {
         console.error(err);
         setError(err.message ?? String(err));
         setStatus('error');
+        setProgressMessage(null);
       }
     }
     hydrate();
@@ -692,6 +695,7 @@ const App: React.FC = () => {
     if (!file) return;
     setStatus('loading');
     setError(null);
+    setProgressMessage('Loading uploaded dataset...');
     try {
       const text = await file.text();
       const parsed = JSON.parse(text);
@@ -706,10 +710,12 @@ const App: React.FC = () => {
       await saveDataset(payload);
       setDataset(payload);
       setStatus('ready');
+      setProgressMessage(null);
     } catch (err: any) {
       console.error(err);
       setError(err.message ?? String(err));
       setStatus('error');
+      setProgressMessage(null);
     } finally {
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
@@ -723,24 +729,32 @@ const App: React.FC = () => {
     }
     setStatus('loading');
     setError(null);
+    setProgressMessage('Loading local dataset...');
     try {
       const data = await fetchDatasetFromLocal();
       await saveDataset(data);
       setDataset(data);
       setStatus('ready');
+      setProgressMessage(null);
     } catch (err: any) {
       console.error(err);
       setError(err.message ?? String(err));
       setStatus('error');
+      setProgressMessage(null);
     }
   }, []);
 
   const handleFetchFromApi = useCallback(async () => {
     setStatus('loading');
     setError(null);
+    setProgressMessage('Fetching latest shows...');
     try {
       const current = dataset ?? null;
-      const { dataset: next } = await syncDatasetWithApi(current);
+      const { dataset: next } = await syncDatasetWithApi(current, {
+        onProgress: (progress) => {
+          setProgressMessage(progress.message);
+        }
+      });
       await saveDataset(next);
       setDataset(next);
       setStatus('ready');
@@ -748,6 +762,7 @@ const App: React.FC = () => {
       console.error(err);
       setError(err.message ?? String(err));
       setStatus('error');
+      setProgressMessage(null);
     }
   }, [dataset]);
 
@@ -755,6 +770,7 @@ const App: React.FC = () => {
     await clearDataset();
     setDataset(null);
     setStatus('idle');
+    setProgressMessage(null);
   }, []);
 
   const isDetailView = location.pathname.startsWith('/shows/');
@@ -813,9 +829,10 @@ const App: React.FC = () => {
             </Button>
           </div>
         </div>
-        {error ? (
-          <div className="mx-auto max-w-6xl px-6 pb-4">
-            <p className="text-sm text-destructive">{error}</p>
+        {error || progressMessage ? (
+          <div className="mx-auto max-w-6xl px-6 pb-4 space-y-1">
+            {error ? <p className="text-sm text-destructive">{error}</p> : null}
+            {progressMessage ? <p className="text-sm text-muted-foreground">{progressMessage}</p> : null}
           </div>
         ) : null}
       </header>

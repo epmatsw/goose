@@ -92,7 +92,29 @@ export interface SyncResult {
   addedSetlistCount: number;
 }
 
-export async function syncDatasetWithApi(existing?: GooseDataset | null): Promise<SyncResult> {
+export interface SyncProgress {
+  phase: 'shows' | 'setlists' | 'complete';
+  completed?: number;
+  total?: number;
+  message: string;
+}
+
+export interface SyncOptions {
+  onProgress?: (progress: SyncProgress) => void;
+}
+
+export async function syncDatasetWithApi(
+  existing?: GooseDataset | null,
+  options: SyncOptions = {}
+): Promise<SyncResult> {
+  const emitProgress = (progress: SyncProgress) => {
+    if (typeof options.onProgress === 'function') {
+      options.onProgress(progress);
+    }
+  };
+
+  emitProgress({ phase: 'shows', message: 'Fetching latest shows...', completed: 0 });
+
   const baseline = existing ?? null;
   const existingShows = baseline?.shows ?? [];
   const existingSetlists = baseline?.setlists ?? [];
@@ -106,6 +128,12 @@ export async function syncDatasetWithApi(existing?: GooseDataset | null): Promis
   }
 
   const latestShows = await fetchShows();
+  emitProgress({
+    phase: 'shows',
+    message: `Fetched ${latestShows.length.toLocaleString()} shows. Comparing with cached data...`,
+    completed: latestShows.length
+  });
+
   const mergedShows: JsonRecord[] = [];
   const newShowRecords: Array<{ id: number; record: JsonRecord }> = [];
 
@@ -139,9 +167,39 @@ export async function syncDatasetWithApi(existing?: GooseDataset | null): Promis
   const combinedSetlists = [...existingSetlists];
   const newEntriesByShow = new Map<number, JsonRecord[]>();
 
+  if (newShowRecords.length === 0) {
+    const dataset: GooseDataset = {
+      fetchedAt: new Date().toISOString(),
+      shows: mergedShows,
+      setlists: combinedSetlists
+    };
+
+    emitProgress({
+      phase: 'complete',
+      message: 'Dataset is already up to date.',
+      completed: mergedShows.length,
+      total: mergedShows.length
+    });
+
+    return {
+      dataset,
+      addedShowCount: 0,
+      addedSetlistCount: 0
+    };
+  }
+
   if (newShowRecords.length > 0) {
     let index = 0;
     const errors: Array<{ showId: number; error: Error }> = [];
+    let completed = 0;
+    const total = newShowRecords.length;
+
+    emitProgress({
+      phase: 'setlists',
+      message: `Downloading setlists for ${total} new show${total === 1 ? '' : 's'} (0/${total})...`,
+      completed: 0,
+      total
+    });
 
     async function worker() {
       while (index < newShowRecords.length) {
@@ -166,6 +224,14 @@ export async function syncDatasetWithApi(existing?: GooseDataset | null): Promis
           }
         } catch (error: any) {
           errors.push({ showId: id, error: error instanceof Error ? error : new Error(String(error)) });
+        } finally {
+          completed += 1;
+          emitProgress({
+            phase: 'setlists',
+            message: `Downloading setlists (${completed}/${total})...`,
+            completed,
+            total
+          });
         }
       }
     }
@@ -189,6 +255,13 @@ export async function syncDatasetWithApi(existing?: GooseDataset | null): Promis
         combinedSetlists.push(...additions);
       }
     }
+
+    emitProgress({
+      phase: 'setlists',
+      message: 'Finished downloading new setlists.',
+      completed: total,
+      total
+    });
   }
 
   const dataset: GooseDataset = {
@@ -198,6 +271,15 @@ export async function syncDatasetWithApi(existing?: GooseDataset | null): Promis
   };
 
   const addedSetlistCount = Array.from(newEntriesByShow.values()).reduce((total, entries) => total + entries.length, 0);
+
+  emitProgress({
+    phase: 'complete',
+    message: `Sync complete. Added ${newShowRecords.length} new show${newShowRecords.length === 1 ? '' : 's'} and ${addedSetlistCount} setlist entr${
+      addedSetlistCount === 1 ? 'y' : 'ies'
+    }.`,
+    completed: newShowRecords.length,
+    total: newShowRecords.length
+  });
 
   return {
     dataset,
