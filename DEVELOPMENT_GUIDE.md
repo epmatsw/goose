@@ -1,7 +1,7 @@
 # Development Guide
 
 ## Prerequisites
-- **Node.js ≥ 18** (the project is routinely exercised with `/Users/will/.nvm/versions/node/v23.5.0/bin/node` to ensure Playwright compatibility).
+- **Node.js ≥ 18** (_prefer_ 22.x or 24.x so Vitest 4.0.1 skips the engine warning; Node 23.5.0 still works but prints a notice during `npm install`).
 - **npm 9+** (ships with recent Node releases).
 - Optional: **nvm** or a similar version manager to swap Node versions easily.
 - A modern browser (Chromium-based recommended) for local UI testing.
@@ -25,7 +25,8 @@
 | `npm run coverage:e2e` | Converts Playwright CDP coverage data into Istanbul reports. |
 | `npm run lint` | Checks source formatting with Biome (formatter-only). |
 | `npm run fix` | Applies Biome formatting updates. |
-| `npm run web:dev` | Starts the React dev server with access to the local dataset file. |
+| `npm run dev` | Starts the React dev server with access to the local dataset file. |
+| `npm run web:dev` | Legacy alias for `npm run dev`. |
 | `npm run build` | Produces a static build in `docs/` with inline JS/CSS for GitHub Pages. |
 | `npm run web:build` | Alias of `npm run build` (direct Vite invocation). |
 | `npm run web:preview` | Serves the contents of `docs/` locally to sanity-check the build. |
