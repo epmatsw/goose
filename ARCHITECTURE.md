@@ -46,7 +46,7 @@ flowchart LR
   - CLI persists JSON to disk (`elgoose_setlists.json`) and optionally consumes `ELGOOSE_DATASET_JSON` to inject datasets in constrained environments.
   - Web dashboard relies on `idb-keyval` to store the latest dataset in the browser; the “Clear Cache” control wipes this key and is disabled when no cache exists.
 - **UI composition**
-  - Routing via `BrowserRouter` exposes dashboards (`/`), cover index (`/covers`), cover details, show detail (`/shows/:id`), and song detail (`/songs/:key`).
+  - Routing via `HashRouter` exposes dashboards (`/#/`), cover index (`/#/covers`), cover details, show detail (`/#/shows/:id`), and song detail (`/#/songs/:key`).
   - Tailwind CSS drives styling; Shadcn-inspired UI primitives in `web/src/components/ui` wrap Radix Slot + Tailwind classes for buttons, inputs, cards, etc.
   - Progress indicators and spinners (Lucide icons) communicate loading while filters (`useTransition`) keep the interface responsive.
 - **Build pipeline**
@@ -67,4 +67,3 @@ flowchart LR
 - **Static hosting**: All assets are inlined into `docs/index.html`, enabling drop-in deployment on GitHub Pages without additional servers.
 - **Environment override**: `ELGOOSE_DATASET_JSON` lets the CLI operate in sandboxed or CI environments where filesystem writes are restricted.
 - **External dependency risk**: Both surfaces rely on the public `elgoose.net` API; outages or schema changes propagate directly and should be monitored.
-

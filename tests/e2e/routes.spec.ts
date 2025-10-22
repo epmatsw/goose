@@ -18,7 +18,7 @@ async function loadDataset(page) {
 
 async function openCoverArtists(page) {
   await page.getByRole('link', { name: /Browse & search cover artists/i }).click();
-  await expect(page).toHaveURL(/\/(#\/)?covers$/);
+  await expect(page).toHaveURL(/\/#\/covers$/);
   await expect(page.getByRole('heading', { name: 'Cover Artists' })).toBeVisible();
   const rows = page.locator('#cover-artists-table tbody tr');
   await expect(rows.first()).toBeVisible();
@@ -47,7 +47,7 @@ test('show detail route renders setlist for selected show', async ({ page }) => 
   await loadDataset(page);
   const firstRow = page.locator('table tbody tr').first();
   await firstRow.click();
-  await expect(page).toHaveURL(/\/(#\/)?shows\/\d+$/);
+  await expect(page).toHaveURL(/\/#\/shows\/\d+$/);
   await expect(page.getByRole('heading', { name: /Setlist/ })).toBeVisible();
   await page.getByRole('button', { name: 'Back' }).click();
   await expect(page).toHaveURL(/\/(#\/)?$/);
@@ -57,9 +57,9 @@ test('song detail route shows statistics for selected song', async ({ page }) =>
   await loadDataset(page);
   const firstRow = page.locator('table tbody tr').first();
   await firstRow.click();
-  await expect(page).toHaveURL(/\/(#\/)?shows\/\d+$/);
+  await expect(page).toHaveURL(/\/#\/shows\/\d+$/);
   await page.getByRole('button', { name: 'View song stats' }).first().click();
-  await expect(page).toHaveURL(/\/(#\/)?songs\//);
+  await expect(page).toHaveURL(/\/#\/songs\//);
   await expect(page.getByText('Shows Played')).toBeVisible();
 });
 
@@ -159,7 +159,26 @@ test('cover artist detail metrics and song sorting', async ({ page }) => {
   const songRows = page.locator('table tbody tr');
   await expect(songRows.first()).toBeVisible();
   const initialSongFirst = await songRows.first().locator('td').first().innerText();
-  await page.getByRole('button', { name: 'Song' }).click();
+  const songButton = page.getByRole('button', { name: 'Song' });
+  await songButton.click();
+  const songNameCollator = new Intl.Collator(undefined, { sensitivity: 'base', ignorePunctuation: true });
+  await expect
+    .poll(async () => {
+      const names = await songRows.evaluateAll((elements) => {
+        return elements.map((element) => {
+          const cell = element.querySelector('td');
+          return (cell?.textContent ?? '').trim();
+        });
+      });
+      if (names.length < 2) return names.length > 0;
+      for (let i = 0; i < names.length - 1; i += 1) {
+        if (songNameCollator.compare(names[i], names[i + 1]) > 0) {
+          return false;
+        }
+      }
+      return true;
+    })
+    .toBeTruthy();
   const songRowCount = await songRows.count();
   if (songRowCount > 1) {
     const collator = new Intl.Collator(undefined, { sensitivity: 'base', ignorePunctuation: true });
@@ -173,23 +192,26 @@ test('cover artist detail metrics and song sorting', async ({ page }) => {
   }
 
   await page.getByRole('button', { name: 'Covers Logged' }).click();
-  await page.waitForFunction(() => {
-    const rows = Array.from(document.querySelectorAll('table tbody tr'));
-    if (rows.length < 2) return false;
-    const values = rows.map((row) => {
-      const cell = row.querySelectorAll('td')[1];
-      if (!cell) return Number.NaN;
-      const parsed = Number.parseInt(cell.textContent ?? '', 10);
-      return Number.isNaN(parsed) ? Number.NaN : parsed;
-    });
-    if (values.some((value) => Number.isNaN(value))) return false;
-    for (let i = 0; i < values.length - 1; i += 1) {
-      if (values[i] < values[i + 1]) {
-        return false;
+  await expect
+    .poll(async () => {
+      const values = await songRows.evaluateAll((elements) => {
+        return elements.map((element) => {
+          const cell = element.querySelectorAll('td')[1];
+          if (!cell) return Number.NaN;
+          const parsed = Number.parseInt(cell.textContent ?? '', 10);
+          return Number.isNaN(parsed) ? Number.NaN : parsed;
+        });
+      });
+      if (values.length < 2) return values.length > 0 && Number.isFinite(values[0]);
+      if (values.some((value) => Number.isNaN(value))) return false;
+      for (let i = 0; i < values.length - 1; i += 1) {
+        if (values[i] < values[i + 1]) {
+          return false;
+        }
       }
-    }
-    return true;
-  });
+      return true;
+    })
+    .toBeTruthy();
   if (songRowCount > 1) {
     for (let i = 0; i < songRowCount - 1; i += 1) {
       const current = Number.parseInt(await songRows.nth(i).locator('td').nth(1).innerText(), 10);
@@ -199,14 +221,14 @@ test('cover artist detail metrics and song sorting', async ({ page }) => {
   }
 
   await page.getByRole('button', { name: 'All Cover Artists' }).click();
-  await expect(page).toHaveURL(/\/(#\/)?covers$/);
+  await expect(page).toHaveURL(/\/#\/covers$/);
 });
 
 test('song index supports filtering and sorting', async ({ page }) => {
   await loadDataset(page);
 
   await page.getByRole('link', { name: /Browse & search songs/i }).click();
-  await expect(page).toHaveURL(/\/(#\/)?songs$/);
+  await expect(page).toHaveURL(/\/#\/songs$/);
 
   const rows = page.locator('#songs-table tbody tr');
   await expect(rows.first()).toBeVisible();
@@ -304,14 +326,14 @@ test('song index supports filtering and sorting', async ({ page }) => {
 
   const firstSongName = (await rows.first().locator('td').first().locator('div').first().innerText()).trim();
   await rows.first().click();
-  await expect(page).toHaveURL(/\/(#\/)?songs\//);
+  await expect(page).toHaveURL(/\/#\/songs\//);
   await expect(page.getByRole('heading', { name: firstSongName })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Appearances' })).toBeVisible();
 });
 
 test('song duration sorting orders appearances by length', async ({ page }) => {
   await loadDataset(page);
-  await page.goto('/songs/id%3A645');
+  await page.goto('/#/songs/id%3A645');
 
   const loadButton = page.getByRole('button', { name: /Load Local Dataset/i });
   if (await loadButton.isVisible()) {
@@ -394,7 +416,7 @@ test('song detail view highlights setlist groups and rarity', async ({ page }) =
   const missionRow = page.locator('#top-shows-table tbody tr').first();
   await expect(missionRow).toContainText(/Mission Ballroom/);
   await missionRow.click();
-  await expect(page).toHaveURL(/\/(#\/)?shows\/\d+$/);
+  await expect(page).toHaveURL(/\/#\/shows\/\d+$/);
 
   await expect(page.getByRole('heading', { name: /Setlist/ })).toBeVisible();
   const showHeader = page.getByRole('heading', { level: 3, name: / - / });
@@ -406,7 +428,7 @@ test('song detail view highlights setlist groups and rarity', async ({ page }) =
   await expect(page.locator('text=/Cover of/').first()).toBeVisible();
 
   await page.getByRole('button', { name: 'View song stats' }).first().click();
-  await expect(page).toHaveURL(/\/(#\/)?songs\//);
+  await expect(page).toHaveURL(/\/#\/songs\//);
   await expect(page.getByText('Shows Played')).toBeVisible();
   await expect(page.getByText(/^Rarity$/)).toBeVisible();
   const occurrenceRows = page.locator('table tbody tr');
@@ -419,7 +441,7 @@ test('song detail view highlights setlist groups and rarity', async ({ page }) =
   const durationHeader = page.locator('table thead tr th').nth(3);
   await expect(durationHeader).toHaveAttribute('aria-sort', 'descending');
 
-  await page.goto('/shows/1621475790');
+  await page.goto('/#/shows/1621475790');
   const localButton = page.getByRole('button', { name: /Load Local Dataset/i });
   if (await localButton.isVisible()) {
     await Promise.all([
@@ -430,7 +452,7 @@ test('song detail view highlights setlist groups and rarity', async ({ page }) =
       localButton.click()
     ]);
   }
-  await expect(page).toHaveURL(/\/(#\/)?shows\/1621475790$/);
+  await expect(page).toHaveURL(/\/#\/shows\/1621475790$/);
   await expect(page.getByRole('heading', { name: /Setlist/ })).toBeVisible();
   const firstTimeRows = page.locator('[data-first-time=\"true\"]');
   await expect(page.locator('text=First Time Played').first()).toBeVisible();

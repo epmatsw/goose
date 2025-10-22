@@ -369,6 +369,7 @@ function decodeHtmlEntities(value: string | null | undefined): string {
 }
 
 const UNKNOWN_COVER_ARTIST_LABEL = 'Unknown Artist';
+const UNKNOWN_COVER_ARTIST_KEY = 'unknown-artist';
 
 function normalizeCoverArtistName(value: string | null | undefined): string {
   const decoded = decodeHtmlEntities(value ?? '');
@@ -378,7 +379,11 @@ function normalizeCoverArtistName(value: string | null | undefined): string {
 
 function canonicalizeCoverArtistKey(name: string): string {
   const trimmed = name.trim().toLowerCase();
-  return trimmed.length > 0 ? trimmed : UNKNOWN_COVER_ARTIST_LABEL.toLowerCase();
+  if (trimmed.length === 0) return UNKNOWN_COVER_ARTIST_KEY;
+
+  const normalized = trimmed.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
+  const slug = normalized.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return slug.length > 0 ? slug : UNKNOWN_COVER_ARTIST_KEY;
 }
 
 function buildCoverArtistPath(name: string): string {
@@ -2534,7 +2539,7 @@ const CoverArtistIndex: React.FC<CoverArtistIndexProps> = ({ artists }) => {
 const CoverArtistPage: React.FC<CoverArtistPageProps> = ({ artists }) => {
   const { artistKey: encodedKey } = useParams<{ artistKey: string }>();
   const navigate = useNavigate();
-  const canonicalKey = encodedKey ? decodeURIComponent(encodedKey).toLowerCase() : '';
+  const canonicalKey = encodedKey ? canonicalizeCoverArtistKey(decodeURIComponent(encodedKey)) : '';
   const artist = canonicalKey ? artists[canonicalKey] : undefined;
 
   const [songSort, setSongSort] = useState<CoverArtistSongSortState>({
