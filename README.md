@@ -70,3 +70,9 @@ Then open [http://localhost:5173](http://localhost:5173) in a browser. The UI su
 - Viewing omitted shows (those without setlist data), average rarity, and a sortable leaderboard styled with shadcn-inspired components.
 
 Use `npm run web:build` (and `npm run web:preview`) to produce a production-ready build.
+
+## Development Commands
+
+- `npm run test:types` runs the strict TypeScript check (`tsgo --noEmit`).
+- `npm run lint` executes Biome in check mode (formatter-only) so CI can verify formatting.
+- `npm run fix` applies Biome formatting updates in-place.

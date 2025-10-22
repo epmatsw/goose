@@ -24,8 +24,11 @@
 | `npm start` | Runs the CLI (same as `node goose_rarity.js`). |
 | `node goose_rarity.js --update` | Refreshes the cached dataset and recomputes rarity scores. |
 | `npm test` | Executes Vitest unit/integration tests located under `test/`. |
+| `npm run test:types` | Runs the TypeScript compiler in no-emit mode for strict type safety. |
 | `npm run test:e2e` | Launches the Playwright suite in Chromium against the Vite dev server. |
 | `npm run coverage:e2e` | Converts Playwright CDP coverage data into Istanbul reports. |
+| `npm run lint` | Checks source formatting with Biome (formatter-only). |
+| `npm run fix` | Applies Biome formatting updates. |
 | `npm run web:dev` | Starts the React dev server with access to the local dataset file. |
 | `npm run web:build` | Produces a static build in `docs/` with inline JS/CSS for GitHub Pages. |
 | `npm run web:preview` | Serves the contents of `docs/` locally to sanity-check the build. |
