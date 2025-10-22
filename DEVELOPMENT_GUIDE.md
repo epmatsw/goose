@@ -12,11 +12,7 @@
    ```bash
    npm install
    ```
-3. Install web-specific dependencies:
-   ```bash
-   npm install --prefix web
-   ```
-4. (Optional) Place a cached dataset at `elgoose_setlists.json` in the repo root to avoid an initial API download.
+3. (Optional) Place a cached dataset at `elgoose_setlists.json` in the repo root to avoid an initial API download.
 
 ## Common Scripts
 | Command | Description |
@@ -30,7 +26,8 @@
 | `npm run lint` | Checks source formatting with Biome (formatter-only). |
 | `npm run fix` | Applies Biome formatting updates. |
 | `npm run web:dev` | Starts the React dev server with access to the local dataset file. |
-| `npm run web:build` | Produces a static build in `docs/` with inline JS/CSS for GitHub Pages. |
+| `npm run build` | Produces a static build in `docs/` with inline JS/CSS for GitHub Pages. |
+| `npm run web:build` | Alias of `npm run build` (direct Vite invocation). |
 | `npm run web:preview` | Serves the contents of `docs/` locally to sanity-check the build. |
 
 ## Project Structure

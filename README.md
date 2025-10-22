@@ -58,7 +58,6 @@ rarity = min(1 / playsPct, 1 / 3) * (1 - 0.5 * isCover)
 A Vite + React dashboard lives in `web/` and exposes the same filters as the CLI:
 
 ```bash
-npm install --prefix web
 npm run web:dev
 ```
 
@@ -69,10 +68,11 @@ Then open [http://localhost:5173](http://localhost:5173) in a browser. The UI su
 - Filtering by year, venue substring, and the number of top shows to display.
 - Viewing omitted shows (those without setlist data), average rarity, and a sortable leaderboard styled with shadcn-inspired components.
 
-Use `npm run web:build` (and `npm run web:preview`) to produce a production-ready build.
+Use `npm run build` (or `npm run web:build`) to produce a production-ready build, and `npm run web:preview` to sanity-check the static output.
 
 ## Development Commands
 
 - `npm run test:types` runs the strict TypeScript check (`tsgo --noEmit`).
-- `npm run lint` executes Biome in check mode (formatter-only) so CI can verify formatting.
+- `npm run lint` executes Biome in check mode (formatter-only) so CI can verify formatting across the monorepo.
 - `npm run fix` applies Biome formatting updates in-place.
+- `npm run build` runs the Vite production build from the repository root.

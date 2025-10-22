@@ -157,6 +157,7 @@ export default defineConfig(({ command }) => {
 	const basePath = isBuild ? "/goose/" : "/";
 
 	return {
+		root: __dirname,
 		base: basePath,
 		plugins: [react(), localDatasetPlugin(), inlineBuildAssetsPlugin(basePath)],
 		server: {

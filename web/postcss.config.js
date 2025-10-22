@@ -1,6 +1,14 @@
 import autoprefixer from "autoprefixer";
+import path from "path";
 import tailwindcss from "tailwindcss";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export default {
-	plugins: [tailwindcss(), autoprefixer()],
+	plugins: [
+		tailwindcss({ config: path.join(__dirname, "tailwind.config.js") }),
+		autoprefixer(),
+	],
 };

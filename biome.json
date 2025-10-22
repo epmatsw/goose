@@ -17,7 +17,6 @@
 				"docs/**",
 				"web/dist/**",
 				"node_modules/**",
-				"web/node_modules/**",
 				"**/package-lock.json"
 			],
 			"linter": { "enabled": false },
